@@ -6,6 +6,10 @@
 #ifndef _LJ_ARCH_H
 #define _LJ_ARCH_H
 
+#ifndef LJX_VERSION
+#include "lj_arch_vc.h"
+#endif
+
 /* Target endianess. */
 #define LUAJIT_LE	0
 #define LUAJIT_BE	1

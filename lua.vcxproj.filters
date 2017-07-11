@@ -75,6 +75,7 @@
     <ClInclude Include="src\luaconf.h" />
     <ClInclude Include="src\luajit.h" />
     <ClInclude Include="src\lualib.h" />
+    <ClInclude Include="src\lj_arch_vc.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\lib_aux.c" />

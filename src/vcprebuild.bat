@@ -4,7 +4,7 @@
 @set DASMDIR=..\dynasm
 @set DASM=%DASMDIR%\dynasm.lua
 @set LJLIBNAME=lua51.lib
-@set ALL_LIB=lib_base.c lib_math.c lib_bit.c lib_string.c lib_table.c lib_io.c lib_os.c lib_package.c lib_debug.c lib_jit.c lib_ffi.c
+@set ALL_LIB=lib_base.c lib_math.c lib_bit.c lib_string.c lib_table.c lib_io.c lib_os.c lib_package.c lib_debug.c lib_jit.c lib_ffi.c lib_utf8.c
 
 %LJCOMPILE% host\minilua.c || exit /b 1
 %LJLINK% /out:minilua.exe minilua.obj

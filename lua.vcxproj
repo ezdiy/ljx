@@ -105,7 +105,7 @@
       <Optimization>MaxSpeed</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
-      <PreprocessorDefinitions>LJX_VERSION="LJX-msvc-git";WIN32;NDEBUG;_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;NDEBUG;_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <DisableSpecificWarnings>4244;4018;4996</DisableSpecificWarnings>
     </ClCompile>
     <Link>
@@ -122,7 +122,7 @@
       </Message>
     </PreBuildEvent>
     <CustomBuildStep>
-      <Outputs>src\lj_folddef.h;src\jit\vmdef.lua;src\lj_recdef.h;src\lj_libdef.h;src\lj_ffdef.h;src\lj_bcdef.h;%(Outputs)</Outputs>
+      <Outputs>src\lj_folddef.h;src\jit\vmdef.lua;src\lj_recdef.h;src\lj_libdef.h;src\lj_ffdef.h;src\lj_bcdef.h;src\lj_vm.obj;%(Outputs)</Outputs>
       <Command>cd src &amp;&amp; vcprebuild.bat</Command>
     </CustomBuildStep>
   </ItemDefinitionGroup>
@@ -150,6 +150,7 @@
     <ClInclude Include="src\ljx_bitwise.h" />
     <ClInclude Include="src\lj_alloc.h" />
     <ClInclude Include="src\lj_arch.h" />
+    <ClInclude Include="src\lj_arch_vc.h" />
     <ClInclude Include="src\lj_asm.h" />
     <ClInclude Include="src\lj_asm_x86.h" />
     <ClInclude Include="src\lj_bc.h" />
