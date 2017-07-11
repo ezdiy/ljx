@@ -146,4 +146,7 @@
     <ClCompile Include="src\lj_vmmath.c" />
     <ClCompile Include="src\ljx_bitwise.c" />
   </ItemGroup>
+  <ItemGroup>
+    <Object Include="src\lj_vm.obj" />
+  </ItemGroup>
 </Project>

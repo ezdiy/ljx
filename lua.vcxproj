@@ -282,6 +282,9 @@
     <ClCompile Include="src\lj_vmevent.c" />
     <ClCompile Include="src\lj_vmmath.c" />
   </ItemGroup>
+  <ItemGroup>
+    <Object Include="src\lj_vm.obj" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
