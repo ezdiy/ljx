@@ -1135,7 +1135,7 @@ LUA_API void lua_seti(lua_State *L, int idx, lua_Integer i)
 #if LJ_ABIVER!=51
 LUA_API void lua_setglobal (lua_State *L, const char *var)
 {
-  return lua_setfield(L, LUA_GLOBALSINDEX, var);
+  lua_setfield(L, LUA_GLOBALSINDEX, var);
 }
 
 LUA_API int lua_getglobal (lua_State *L, const char *var)

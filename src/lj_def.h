@@ -151,8 +151,6 @@ typedef uintptr_t BloomFilter;
 #define LJ_LIKELY(x)	__builtin_expect(!!(x), 1)
 #define LJ_UNLIKELY(x)	__builtin_expect(!!(x), 0)
 
-#define LJ_RESTRICT
-
 #define lj_ffs(x)	((uint32_t)__builtin_ctz(x))
 /* Don't ask ... */
 #if defined(__INTEL_COMPILER) && (defined(__i386__) || defined(__x86_64__))
@@ -365,6 +363,10 @@ static LJ_AINLINE uint32_t lj_getu32(const void *v)
 #else
 #define LJ_STATIC_ASSERT(cond) \
   extern void LJ_ASSERT_NAME(__LINE__)(int STATIC_ASSERTION_FAILED[(cond)?1:-1])
+#endif
+
+#ifndef LJ_RESTRICT
+#define LJ_RESTRICT
 #endif
 
 #endif

@@ -598,7 +598,7 @@ static TRef crec_tv_ct(jit_State *J, CType *s, CTypeID sid, TRef sp)
 
 /* -- Convert TValue to C type (store) ------------------------------------ */
 
-TRef lj_crec_ct_tv(jit_State *J, CType *d, TRef dp, TRef sp, cTValue *sval)
+TRef LJ_FASTCALL lj_crec_ct_tv(jit_State *J, CType *d, TRef dp, TRef sp, cTValue *sval)
 {
   CTState *cts = ctype_ctsG(J2G(J));
   CTypeID sid = CTID_P_VOID;

@@ -147,7 +147,7 @@ static TValue *cpluaopen(lua_State *L, lua_CFunction dummy, void *ud)
   UNUSED(ud);
   stack_init(L, L);
   lua_assert(L->cframe);
-  g->cframe_limit = L->cframe - LUAI_MAXCFRAME;
+  g->cframe_limit = (char*)L->cframe - LUAI_MAXCFRAME;
   /* NOBARRIER: State initialization, all objects are white. */
   lj_str_resize(L, LJ_MIN_STRTAB-1);
   lj_meta_init(L);
