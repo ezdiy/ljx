@@ -24,8 +24,6 @@
 #include "lj_arch.h"
 #include "lj_char.h"
 
-#include <unistd.h>
-
 #if !defined(lua_readline)
 #if defined(LUA_USE_READLINE)
 #include <readline/readline.h>
@@ -246,6 +244,7 @@ static void lua_rl_exit(lua_State *L)
 #endif
 
 #if LJ_TARGET_POSIX
+#include <unistd.h>
 #define lua_stdin_is_tty()	isatty(0)
 #elif LJ_TARGET_WINDOWS
 #include <io.h>

@@ -113,6 +113,13 @@ LUA_API int lua_status(lua_State *L)
   return L->status;
 }
 
+LUA_API int lua_isyieldable(lua_State *L)
+{
+  UNUSED(L);
+  /* XXX: luajit can yield across normal c functions too */
+  return 1;
+}
+
 LUA_API int lua_checkstack(lua_State *L, int size)
 {
   if (size > LUAI_MAXCSTACK || (L->top - L->base + size) > LUAI_MAXCSTACK) {
@@ -332,6 +339,13 @@ LUA_API int lua_isnumber(lua_State *L, int idx)
   return (tvisnumber(o) || (tvisstr(o) && lj_strscan_number(strV(o), &tmp)));
 }
 
+LUA_API int lua_isinteger(lua_State *L, int idx)
+{
+  cTValue *o = index2adr(L, idx);
+  /* XXX: no real integer in luajit */
+  return tvisint(o) || (tvisnum(o) && numV(o) == (lua_Integer) numV(o));
+}
+
 LUA_API int lua_isstring(lua_State *L, int idx)
 {
   cTValue *o = index2adr(L, idx);
@@ -526,6 +540,7 @@ LUA_API lua_Integer lua_tointegerx(lua_State *L, int idx, int *ok)
 #else
   return lj_num2int(n);
 #endif
+}
 
 LUALIB_API lua_Integer luaL_checkinteger(lua_State *L, int idx)
 {
@@ -543,11 +558,7 @@ LUALIB_API lua_Integer luaL_checkinteger(lua_State *L, int idx)
       return (lua_Integer)intV(&tmp);
     n = numV(&tmp);
   }
-#if LJ_64
   return (lua_Integer)n;
-#else
-  return lj_num2int(n);
-#endif
 }
 
 LUALIB_API lua_Integer luaL_optinteger(lua_State *L, int idx, lua_Integer def)
@@ -568,11 +579,7 @@ LUALIB_API lua_Integer luaL_optinteger(lua_State *L, int idx, lua_Integer def)
       return (lua_Integer)intV(&tmp);
     n = numV(&tmp);
   }
-#if LJ_64
   return (lua_Integer)n;
-#else
-  return lj_num2int(n);
-#endif
 }
 
 /* TBD: check casts */

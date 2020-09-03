@@ -132,7 +132,11 @@ end
 local function bcsave_c(ctx, output, s)
   local fp = savefile(output, "w")
   if ctx.type == "c" then
+<<<<<<< HEAD
     fp:write(format([[
+=======
+    fp:write(string.format([[
+>>>>>>> d452fe2538301b26b53c24f68585f3d78b131d59
 #ifdef __cplusplus
 extern "C"
 #endif
@@ -149,7 +153,13 @@ static const unsigned char %s%s[] = {
   end
   local t, n, m = {}, 0, 0
   for i=1,#s do
-    local b = tostring(string.byte(s, i))
+    local rb = string.byte(s, i)
+    local b
+    if rb >= 32 and rb < 127 and rb ~= 39 and rb ~= 92 then
+      b = string.format("'%c'", rb)
+    else
+      b = string.format("'\\%o'", rb)
+    end
     m = m + #b + 1
     if m > 78 then
       fp:write(tconcat(t, ",", 1, n), ",\n")

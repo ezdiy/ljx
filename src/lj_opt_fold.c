@@ -873,7 +873,7 @@ LJFOLDF(kfold_conv_knum_int_num)
 LJFOLD(CONV KNUM IRCONV_U32_NUM)
 LJFOLDF(kfold_conv_knum_u32_num)
 {
-#ifdef _MSC_VER
+#if defined(_MSC_VER) && !defined(__clang__)
   {  /* Workaround for MSVC bug. */
     volatile uint32_t u = (uint32_t)knumleft;
     return INTFOLD((int32_t)u);

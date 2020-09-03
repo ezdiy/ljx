@@ -192,6 +192,7 @@ LUA_API void  (lua_xmove) (lua_State *from, lua_State *to, int n);
 LUA_API int             (lua_isnumber) (lua_State *L, int idx);
 LUA_API int             (lua_isstring) (lua_State *L, int idx);
 LUA_API int             (lua_iscfunction) (lua_State *L, int idx);
+LUA_API int             (lua_isinteger) (lua_State *L, int idx);
 LUA_API int             (lua_isuserdata) (lua_State *L, int idx);
 LUA_API int             (lua_type) (lua_State *L, int idx);
 LUA_API const char     *(lua_typename) (lua_State *L, int tp);
@@ -345,6 +346,7 @@ LUA_API int  (lua_yieldk)     (lua_State *L, int nresults, lua_KContext ctx,
 LUA_API int  (lua_yield) (lua_State *L, int nresults);
 LUA_API int  (lua_resume) (lua_State *L, int narg);
 LUA_API int  (lua_status) (lua_State *L);
+LUA_API int (lua_isyieldable) (lua_State *L);
 
 /*
 ** garbage-collection function and options

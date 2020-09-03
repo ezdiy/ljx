@@ -133,7 +133,7 @@ collect_attrib:
     idx = (ptrdiff_t)intV(key);
     goto integer_key;
   } else if (tvisnum(key)) {  /* Numeric key. */
-#ifdef _MSC_VER
+#if defined(_MSC_VER) && !defined(__clang__)
     /* Workaround for MSVC bug. */
     volatile
 #endif

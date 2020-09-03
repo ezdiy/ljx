@@ -123,8 +123,14 @@
 #endif
 
 /* Note: changing the following defines breaks the ABI. */
+#if LJ_ABIVER == 53
+#define LUA_INTEGER long long
+#define LUA_UNSIGNED unsigned long long
+#else
 #define LUA_INTEGER	ptrdiff_t
 #define LUA_UNSIGNED    unsigned int
+#endif
+
 #define LUA_IDSIZE	60	/* Size of lua_Debug.short_src. */
 /*
 ** Size of lauxlib and io.* on-stack buffers. Weird workaround to avoid using
@@ -150,6 +156,7 @@
 #define LUA_INTFRM_T		long
 
 /* Linkage of public API functions. */
+#if !defined(LUA_API)
 #if defined(LUA_BUILD_AS_DLL)
 #if defined(LUA_CORE) || defined(LUA_LIB)
 #define LUA_API		__declspec(dllexport)
@@ -158,6 +165,7 @@
 #endif
 #else
 #define LUA_API		extern
+#endif
 #endif
 
 #define LUALIB_API	LUA_API
