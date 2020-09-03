@@ -701,3 +701,18 @@ MSize LJ_FASTCALL lj_tab_len_hint(GCtab *t, size_t hint)
 }
 #endif
 
+#if LJ_HASJIT
+/* Verify hinted table length or compute it. */
+MSize LJ_FASTCALL lj_tab_len_hint(GCtab *t, size_t hint)
+{
+  size_t asize = (size_t)t->asize;
+  cTValue *tv = arrayslot(t, hint);
+  if (LJ_LIKELY(hint+1 < asize)) {
+    if (LJ_LIKELY(!tvisnil(tv) && tvisnil(tv+1))) return (MSize)hint;
+  } else if (hint+1 <= asize && LJ_LIKELY(t->hmask == 0) && !tvisnil(tv)) {
+    return (MSize)hint;
+  }
+  return lj_tab_len(t);
+}
+#endif
+

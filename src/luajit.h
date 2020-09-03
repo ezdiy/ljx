@@ -61,16 +61,10 @@
 #define LUAJIT_COPYRIGHT	"Copyright (C) 2005-2020 Mike Pall"
 #define LUAJIT_URL		"http://luajit.org/"
 
-/* Let it be known who is responsible for this bastardization */
-#define LJX_COPYRIGHT	"Copyright (C) 2014-2016 Karel Tuma"
-#define LJX_URL		"http://lua.cz/"
-
 #define LUA_COPYRIGHTS  \
   LUA_VERSION " -- " LUA_COPYRIGHT " -- " LUA_URL "\n" \
   LUAJIT_VERSION " -- " LUAJIT_COPYRIGHT " -- " LUAJIT_URL "\n" \
-  LJX_VERSION " -- " LJX_COPYRIGHT " -- " LJX_URL "\n\n" \
   MIT_LEGALESE
-
 
 /* Modes for luaJIT_setmode. */
 #define LUAJIT_MODE_MASK	0x00ff
@@ -111,5 +105,7 @@ LUA_API const char *luaJIT_profile_dumpstack(lua_State *L, const char *fmt,
 
 /* Enforce (dynamic) linker error for version mismatches. Call from main. */
 LUA_API void LUAJIT_VERSION_SYM(void);
+
+LUA_API int luaJIT_compat52;
 
 #endif

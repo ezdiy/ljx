@@ -1,7 +1,7 @@
 ----------------------------------------------------------------------------
 -- LuaJIT module to save/list bytecode.
 --
--- Copyright (C) 2005-2020 Mike Pall. All rights reserved.
+-- Copyright (C) 2005-2017 Mike Pall. All rights reserved.
 -- Released under the MIT license. See Copyright Notice in luajit.h
 ----------------------------------------------------------------------------
 --
@@ -11,7 +11,7 @@
 ------------------------------------------------------------------------------
 
 local jit = require("jit")
-assert(jit.version_num == 20100, "LuaJIT core/library version mismatch")
+assert(jit.version_num == 20200, "moonjit core/library version mismatch")
 local bit = require("bit")
 
 -- Symbol name prefix for LuaJIT bytecode.
@@ -27,6 +27,7 @@ local function usage()
   io.stderr:write[[
 Save LuaJIT bytecode: luajit -b[options] input output
   -l        Only list bytecode.
+  -L        Only list bytecode with lineinfo.
   -s        Strip debug info (default).
   -g        Keep debug info.
   -n name   Set module name (default: auto-detect from input name).
@@ -72,13 +73,14 @@ local map_arch = {
   arm =		{ e = "le", b = 32, m = 40, p = 0x1c0, },
   arm64 =	{ e = "le", b = 64, m = 183, p = 0xaa64, },
   arm64be =	{ e = "be", b = 64, m = 183, },
-  ppc =		{ e = "be", b = 32, m = 20, },
+  ppc =		{ e = "be", b = 32, m = 20, p = 0x1f2, },
   mips =	{ e = "be", b = 32, m = 8, f = 0x50001006, },
   mipsel =	{ e = "le", b = 32, m = 8, f = 0x50001006, },
   mips64 =	{ e = "be", b = 64, m = 8, f = 0x80000007, },
   mips64el =	{ e = "le", b = 64, m = 8, f = 0x80000007, },
   mips64r6 =	{ e = "be", b = 64, m = 8, f = 0xa0000407, },
   mips64r6el =	{ e = "le", b = 64, m = 8, f = 0xa0000407, },
+  ppc64le =	{ e = "le", b = 64, m = 21, p = 0x1f2, },
 }
 
 local map_os = {
@@ -132,11 +134,7 @@ end
 local function bcsave_c(ctx, output, s)
   local fp = savefile(output, "w")
   if ctx.type == "c" then
-<<<<<<< HEAD
     fp:write(format([[
-=======
-    fp:write(string.format([[
->>>>>>> d452fe2538301b26b53c24f68585f3d78b131d59
 #ifdef __cplusplus
 extern "C"
 #endif
@@ -153,13 +151,7 @@ static const unsigned char %s%s[] = {
   end
   local t, n, m = {}, 0, 0
   for i=1,#s do
-    local rb = string.byte(s, i)
-    local b
-    if rb >= 32 and rb < 127 and rb ~= 39 and rb ~= 92 then
-      b = string.format("'%c'", rb)
-    else
-      b = string.format("'\\%o'", rb)
-    end
+    local b = tostring(string.byte(s, i))
     m = m + #b + 1
     if m > 78 then
       fp:write(tconcat(t, ",", 1, n), ",\n")
@@ -589,9 +581,9 @@ end
 
 ------------------------------------------------------------------------------
 
-local function bclist(input, output)
+local function bclist(input, output, lineinfo)
   local f = readfile(input)
-  require("jit.bc").dump(f, savefile(output, "w"), true)
+  require("jit.bc").dump(f, savefile(output, "w"), true, lineinfo)
 end
 
 local function bcsave(ctx, input, output)
@@ -618,6 +610,7 @@ local function docmd(...)
   local arg = {...}
   local n = 1
   local list = false
+  local lineinfo = false
   local ctx = {
     strip = true, arch = jit.arch, os = jit.os:lower(),
     type = false, modname = false,
@@ -631,6 +624,9 @@ local function docmd(...)
 	local opt = a:sub(m, m)
 	if opt == "l" then
 	  list = true
+	elseif opt == "L" then
+	  list = true
+	  lineinfo = true
 	elseif opt == "s" then
 	  ctx.strip = true
 	elseif opt == "g" then
@@ -659,7 +655,7 @@ local function docmd(...)
   end
   if list then
     if #arg == 0 or #arg > 2 then usage() end
-    bclist(arg[1], arg[2] or "-")
+    bclist(arg[1], arg[2] or "-", lineinfo)
   else
     if #arg ~= 2 then usage() end
     bcsave(ctx, arg[1], arg[2])

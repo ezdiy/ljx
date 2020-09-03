@@ -156,6 +156,8 @@ typedef LUA_NUMBER lua_Number;
 typedef LUA_INTEGER lua_Integer;
 typedef LUA_UNSIGNED lua_Unsigned;
 
+/* unsigned integer type */
+typedef unsigned long lua_Unsigned;
 
 
 /*
@@ -382,6 +384,8 @@ LUA_API size_t (lua_stringtonumber) (lua_State *L, const char *s);
 LUA_API lua_Alloc (lua_getallocf) (lua_State *L, void **ud);
 LUA_API void lua_setallocf (lua_State *L, lua_Alloc f, void *ud);
 
+LUA_API void lua_setexdata(lua_State *L, void *exdata);
+LUA_API void *lua_getexdata(lua_State *L);
 
 
 /*
@@ -398,7 +402,7 @@ LUA_API void lua_setallocf (lua_State *L, lua_Alloc f, void *ud);
 
 #define lua_pushcfunction(L,f)	lua_pushcclosure(L, (f), 0)
 
-#define lua_strlen(L,i)		lua_objlen(L, (i))
+#define lua_strlen(L,i)		lua_rawlen(L, (i))
 
 #define lua_isfunction(L,n)	(lua_type(L, (n)) == LUA_TFUNCTION)
 #define lua_istable(L,n)	(lua_type(L, (n)) == LUA_TTABLE)
@@ -416,8 +420,6 @@ LUA_API void lua_setallocf (lua_State *L, lua_Alloc f, void *ud);
 
 #define lua_pushglobaltable(L)  \
         lua_rawgeti(L, LUA_REGISTRYINDEX, LUA_RIDX_GLOBALS)
-
-
 
 /*
 ** compatibility macros and functions
@@ -490,6 +492,10 @@ LUA_API const lua_Number *lua_version (lua_State *L);
 LUA_API void lua_copy (lua_State *L, int fromidx, int toidx);
 LUA_API lua_Number lua_tonumberx (lua_State *L, int idx, int *isnum);
 LUA_API lua_Integer lua_tointegerx (lua_State *L, int idx, int *isnum);
+LUA_API size_t lua_rawlen (lua_State *L, int idx);
+LUA_API void lua_len (lua_State *L, int idx);
+LUA_API int lua_absindex (lua_State *L, int idx);
+LUA_API void luaL_requiref (lua_State *L, char const* modname, lua_CFunction openf, int glb);
 
 /* From Lua 5.3. */
 LUA_API int lua_isyieldable (lua_State *L);

@@ -235,6 +235,9 @@ LJ_FUNCA int lj_err_unwind_dwarf(int version, int actions,
     return _URC_FATAL_PHASE1_ERROR;
   UNUSED(uexclass);
   cf = (void *)_Unwind_GetCFA(ctx);
+#ifdef LJ_TARGET_S390X
+  cf -= 160; /* CFA points 160 bytes above r15. */
+#endif
   L = cframe_L(cf);
   if ((actions & _UA_SEARCH_PHASE)) {
 #if LJ_UNWIND_EXT
@@ -287,6 +290,10 @@ LJ_FUNCA int lj_err_unwind_dwarf(int version, int actions,
 }
 
 #if LJ_UNWIND_EXT
+#ifdef __OpenBSD__
+/* No thread safety for OpenBSD. */
+static _Unwind_Exception static_uex;
+#else
 static __thread _Unwind_Exception static_uex;
 
 /* Raise DWARF2 exception. */

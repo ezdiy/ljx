@@ -1654,3 +1654,13 @@ LUA_API const lua_Number *lua_version (lua_State *L) {
   else return G(L)->version;
 }
 
+LUA_API void lua_setexdata(lua_State *L, void *exdata)
+{
+  L->exdata = exdata;
+}
+
+LUA_API void *lua_getexdata(lua_State *L)
+{
+  return L->exdata;
+}
+

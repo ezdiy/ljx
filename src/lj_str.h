@@ -31,4 +31,12 @@ MatchState * ljx_str_match(lua_State *L, const char *s, const char *p, MSize sle
 #define lj_str_newlit(L, s)	(lj_str_new(L, "" s, sizeof(s)-1))
 #define lj_str_size(len)	(sizeof(GCstr) + (((len)+4) & ~(MSize)3))
 
+typedef MSize (*lj_str_hashfn) (const char *, MSize);
+
+extern lj_str_hashfn lj_str_hash;
+
+extern MSize lj_str_hash_default(const char *str, MSize lenx);
+
+extern void lj_str_hash_init(uint32_t flags);
+
 #endif

@@ -22,9 +22,10 @@
 #define JIT_F_SSE3		(JIT_F_CPU << 0)
 #define JIT_F_SSE4_1		(JIT_F_CPU << 1)
 #define JIT_F_BMI2		(JIT_F_CPU << 2)
+#define JIT_F_SSE4_2		(JIT_F_CPU << 3)
 
 
-#define JIT_F_CPUSTRING		"\4SSE3\6SSE4.1\4BMI2"
+#define JIT_F_CPUSTRING		"\4SSE3\6SSE4.1\4BMI2\6SSE4.2"
 
 #elif LJ_TARGET_ARM
 
@@ -514,5 +515,13 @@ typedef struct jit_State {
 #else
 #define lj_assertJ(c, ...)	((void)J)
 #endif
+
+/* Trivial PRNG e.g. used for penalty randomization. */
+static LJ_AINLINE uint32_t LJ_PRNG_BITS(jit_State *J, int bits)
+{
+  /* Yes, this LCG is very weak, but that doesn't matter for our use case. */
+  J->prngstate = J->prngstate * 1103515245 + 12345;
+  return J->prngstate >> (32-bits);
+}
 
 #endif
