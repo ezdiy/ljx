@@ -63,12 +63,18 @@ LUA_API int lua_loadx(lua_State *L, lua_Reader reader, void *data,
 
 LUA_API int lua_load(lua_State *L, lua_Reader reader, void *data,
 		     const char *chunkname
-#if !LJ_51
+#if LJ_ABIVER != 51
 		     , const char *mode
 #endif
 		     )
 {
-  return lua_loadx(L, reader, data, chunkname, NULL);
+  return lua_loadx(L, reader, data, chunkname,
+#if LJ_ABIVER != 51
+                   mode
+#else
+                   NULL
+#endif
+      );
 }
 
 typedef struct FileReaderCtx {
