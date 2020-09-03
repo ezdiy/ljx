@@ -31,20 +31,16 @@
 #include "lj_def.h"
 #include "lj_arch.h"
 #include "lj_alloc.h"
+#include "lj_prng.h"
 
 #ifndef LUAJIT_USE_SYSMALLOC
 
 #define MAX_SIZE_T		(~(size_t)0)
 #define MALLOC_ALIGNMENT	((size_t)8U)
 
-#if LJ_4GB
-#define MEM_SCALE 16
-#else
-#define MEM_SCALE 1
-#endif
-#define DEFAULT_GRANULARITY	((size_t)128U * MEM_SCALE * (size_t)1024U)
-#define DEFAULT_TRIM_THRESHOLD	((size_t)2U * MEM_SCALE * (size_t)1024U * (size_t)1024U)
-#define DEFAULT_MMAP_THRESHOLD	((size_t)128U * MEM_SCALE * (size_t)1024U)
+#define DEFAULT_GRANULARITY	((size_t)128U * (size_t)1024U)
+#define DEFAULT_TRIM_THRESHOLD	((size_t)2U * (size_t)1024U * (size_t)1024U)
+#define DEFAULT_MMAP_THRESHOLD	((size_t)128U * (size_t)1024U)
 #define MAX_RELEASE_CHECK_RATE	255
 
 /* ------------------- size_t and alignment properties -------------------- */
@@ -70,9 +66,6 @@
  ((((size_t)(A) & CHUNK_ALIGN_MASK) == 0)? 0 :\
   ((MALLOC_ALIGNMENT - ((size_t)(A) & CHUNK_ALIGN_MASK)) & CHUNK_ALIGN_MASK))
 
-#define any_align(S,n) \
- (((S) + ((n) - SIZE_T_ONE)) & ~((n) - SIZE_T_ONE))
-
 /* -------------------------- MMAP support ------------------------------- */
 
 #define MFAIL			((void *)(MAX_SIZE_T))
@@ -80,15 +73,58 @@
 
 #define IS_DIRECT_BIT		(SIZE_T_ONE)
 
-#if LJ_TARGET_WINDOWS || __MSYS__
+
+/* Determine system-specific block allocation method. */
+#if LJ_TARGET_WINDOWS
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
-#if LJ_64 && !LJ_GC64
+#define LJ_ALLOC_VIRTUALALLOC	1
 
+#if LJ_64 && !LJ_GC64
+#define LJ_ALLOC_NTAVM		1
+#endif
+
+#else
+
+#include <errno.h>
+/* If this include fails, then rebuild with: -DLUAJIT_USE_SYSMALLOC */
+#include <sys/mman.h>
+
+#define LJ_ALLOC_MMAP		1
+
+#if LJ_64
+
+#define LJ_ALLOC_MMAP_PROBE	1
+
+#if LJ_GC64
+#define LJ_ALLOC_MBITS		47	/* 128 TB in LJ_GC64 mode. */
+#elif LJ_TARGET_X64 && LJ_HASJIT
+/* Due to limitations in the x64 compiler backend. */
+#define LJ_ALLOC_MBITS		31	/* 2 GB on x64 with !LJ_GC64. */
+#else
+#define LJ_ALLOC_MBITS		32	/* 4 GB on other archs with !LJ_GC64. */
+#endif
+
+#endif
+
+#if LJ_64 && !LJ_GC64 && defined(MAP_32BIT)
+#define LJ_ALLOC_MMAP32		1
+#endif
+
+#if LJ_TARGET_LINUX
+#define LJ_ALLOC_MREMAP		1
+#endif
+
+#endif
+
+
+#if LJ_ALLOC_VIRTUALALLOC
+
+#if LJ_ALLOC_NTAVM
 /* Undocumented, but hey, that's what we all love so much about Windows. */
-typedef long (*PNTAVM)(HANDLE handle, void **addr, ULONG zbits,
+typedef long (*PNTAVM)(HANDLE handle, void **addr, ULONG_PTR zbits,
 		       size_t *size, ULONG alloctype, ULONG prot);
 static PNTAVM ntavm;
 
@@ -97,14 +133,15 @@ static PNTAVM ntavm;
 */
 #define NTAVM_ZEROBITS		1
 
-static void INIT_MMAP(void)
+static void init_mmap(void)
 {
   ntavm = (PNTAVM)GetProcAddress(GetModuleHandleA("ntdll.dll"),
 				 "NtAllocateVirtualMemory");
 }
+#define INIT_MMAP()	init_mmap()
 
 /* Win64 32 bit MMAP via NtAllocateVirtualMemory. */
-static LJ_AINLINE void *CALL_MMAP(size_t size)
+static void *mmap_plain(size_t size)
 {
   DWORD olderr = GetLastError();
   void *ptr = NULL;
@@ -115,7 +152,7 @@ static LJ_AINLINE void *CALL_MMAP(size_t size)
 }
 
 /* For direct MMAP, use MEM_TOP_DOWN to minimize interference */
-static LJ_AINLINE void *DIRECT_MMAP(size_t size)
+static void *direct_mmap(size_t size)
 {
   DWORD olderr = GetLastError();
   void *ptr = NULL;
@@ -127,31 +164,32 @@ static LJ_AINLINE void *DIRECT_MMAP(size_t size)
 
 #else
 
-#define INIT_MMAP()		((void)0)
-
 /* Win32 MMAP via VirtualAlloc */
-static LJ_AINLINE void *CALL_MMAP(size_t size)
+static void *mmap_plain(size_t size)
 {
   DWORD olderr = GetLastError();
-  void *ptr = VirtualAlloc(0, size, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
+  void *ptr = LJ_WIN_VALLOC(0, size, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
   SetLastError(olderr);
   return ptr ? ptr : MFAIL;
 }
 
 /* For direct MMAP, use MEM_TOP_DOWN to minimize interference */
-static LJ_AINLINE void *DIRECT_MMAP(size_t size)
+static void *direct_mmap(size_t size)
 {
   DWORD olderr = GetLastError();
-  void *ptr = VirtualAlloc(0, size, MEM_RESERVE|MEM_COMMIT|MEM_TOP_DOWN,
-			   PAGE_READWRITE);
+  void *ptr = LJ_WIN_VALLOC(0, size, MEM_RESERVE|MEM_COMMIT|MEM_TOP_DOWN,
+			    PAGE_READWRITE);
   SetLastError(olderr);
   return ptr ? ptr : MFAIL;
 }
 
 #endif
 
+#define CALL_MMAP(prng, size)	mmap_plain(size)
+#define DIRECT_MMAP(prng, size)	direct_mmap(size)
+
 /* This function supports releasing coalesed segments */
-static LJ_AINLINE int CALL_MUNMAP(void *ptr, size_t size)
+static int CALL_MUNMAP(void *ptr, size_t size)
 {
   DWORD olderr = GetLastError();
   MEMORY_BASIC_INFORMATION minfo;
@@ -171,27 +209,7 @@ static LJ_AINLINE int CALL_MUNMAP(void *ptr, size_t size)
   return 0;
 }
 
-/*
- * If the libc supports it, try to convince it to always use brk()
- * even for large allocations.
- */
-#elif LJ_4GB
-#define INIT_MMAP() { \
-  mallopt(M_MMAP_THRESHOLD, LJ_MAX_MEM); \
-  mallopt(M_MMAP_MAX, 0); \
-}
-#define CALL_MMAP(n) aligned_alloc(LJ_PAGESIZE, n)
-#define CALL_MUNMAP_FORCE(n,s) ((void)s,free(n),0)
-#define CALL_MUNMAP(n,s) ((void)(s),(void)(n),-1)
-#define CALL_MREMAP(addr, osz, nsz, mv) ((void)osz,realloc((addr), (nsz)))
-#define DIRECT_MMAP CALL_MMAP
-#undef MFAIL
-#define MFAIL NULL
-
-#else
-
-#include <errno.h>
-#include <sys/mman.h>
+#elif LJ_ALLOC_MMAP
 
 #define MMAP_PROT		(PROT_READ|PROT_WRITE)
 #if !defined(MAP_ANONYMOUS) && defined(MAP_ANON)
@@ -199,109 +217,134 @@ static LJ_AINLINE int CALL_MUNMAP(void *ptr, size_t size)
 #endif
 #define MMAP_FLAGS		(MAP_PRIVATE|MAP_ANONYMOUS)
 
-#if LJ_64 && !LJ_GC64
-/* 64 bit mode with 32 bit pointers needs special support for allocating
-** memory in the lower 2GB.
-*/
+#if LJ_ALLOC_MMAP_PROBE
 
-#if defined(MAP_32BIT)
-
-#if defined(__sun__)
-#define MMAP_REGION_START	((uintptr_t)0x1000)
+#ifdef MAP_TRYFIXED
+#define MMAP_FLAGS_PROBE	(MMAP_FLAGS|MAP_TRYFIXED)
 #else
-/* Actually this only gives us max. 1GB in current Linux kernels. */
-#define MMAP_REGION_START	((uintptr_t)0)
+#define MMAP_FLAGS_PROBE	MMAP_FLAGS
 #endif
 
-static LJ_AINLINE void *CALL_MMAP(size_t size)
+#define LJ_ALLOC_MMAP_PROBE_MAX		30
+#define LJ_ALLOC_MMAP_PROBE_LINEAR	5
+
+#define LJ_ALLOC_MMAP_PROBE_LOWER	((uintptr_t)0x4000)
+
+static void *mmap_probe(PRNGState *rs, size_t size)
 {
-  int olderr = errno;
-  void *ptr = mmap((void *)MMAP_REGION_START, size, MMAP_PROT, MAP_32BIT|MMAP_FLAGS, -1, 0);
-  errno = olderr;
-  return ptr;
-}
-
-#elif LJ_TARGET_OSX || LJ_TARGET_PS4 || defined(__FreeBSD__) || defined(__FreeBSD_kernel__) || defined(__NetBSD__) || defined(__OpenBSD__) || defined(__DragonFly__) || defined(__sun__) || defined(__CYGWIN__)
-
-/* OSX and FreeBSD mmap() use a naive first-fit linear search.
-** That's perfect for us. Except that -pagezero_size must be set for OSX,
-** otherwise the lower 4GB are blocked. And the 32GB RLIMIT_DATA needs
-** to be reduced to 250MB on FreeBSD.
-*/
-#if LJ_TARGET_OSX || defined(__DragonFly__)
-#define MMAP_REGION_START	((uintptr_t)0x10000)
-#elif LJ_TARGET_PS4
-#define MMAP_REGION_START	((uintptr_t)0x4000)
-#else
-#define MMAP_REGION_START	((uintptr_t)0x10000000)
-#endif
-#define MMAP_REGION_END		((uintptr_t)0x80000000)
-
-#if (defined(__FreeBSD__) || defined(__FreeBSD_kernel__)) && !LJ_TARGET_PS4
-#include <sys/resource.h>
-#endif
-
-static LJ_AINLINE void *CALL_MMAP(size_t size)
-{
-  int olderr = errno;
   /* Hint for next allocation. Doesn't need to be thread-safe. */
-  static uintptr_t alloc_hint = MMAP_REGION_START;
-  int retry = 0;
-#if (defined(__FreeBSD__) || defined(__FreeBSD_kernel__)) && !LJ_TARGET_PS4
-  static int rlimit_modified = 0;
-  if (LJ_UNLIKELY(rlimit_modified == 0)) {
-    struct rlimit rlim;
-    rlim.rlim_cur = rlim.rlim_max = MMAP_REGION_START;
-    setrlimit(RLIMIT_DATA, &rlim);  /* Ignore result. May fail below. */
-    rlimit_modified = 1;
-  }
-#endif
-  for (;;) {
-    void *p = mmap((void *)alloc_hint, size, MMAP_PROT, MMAP_FLAGS, -1, 0);
-    if ((uintptr_t)p >= MMAP_REGION_START &&
-	(uintptr_t)p + size < MMAP_REGION_END) {
-      alloc_hint = (uintptr_t)p + size;
+  static uintptr_t hint_addr = 0;
+  int olderr = errno;
+  int retry;
+  for (retry = 0; retry < LJ_ALLOC_MMAP_PROBE_MAX; retry++) {
+    void *p = mmap((void *)hint_addr, size, MMAP_PROT, MMAP_FLAGS_PROBE, -1, 0);
+    uintptr_t addr = (uintptr_t)p;
+    if ((addr >> LJ_ALLOC_MBITS) == 0 && addr >= LJ_ALLOC_MMAP_PROBE_LOWER &&
+	((addr + size) >> LJ_ALLOC_MBITS) == 0) {
+      /* We got a suitable address. Bump the hint address. */
+      hint_addr = addr + size;
       errno = olderr;
       return p;
     }
-    if (p != CMFAIL) munmap(p, size);
-#if defined(__sun__) || defined(__DragonFly__)
-    alloc_hint += 0x1000000;  /* Need near-exhaustive linear scan. */
-    if (alloc_hint + size < MMAP_REGION_END) continue;
-#endif
-    if (retry) break;
-    retry = 1;
-    alloc_hint = MMAP_REGION_START;
+    if (p != MFAIL) {
+      munmap(p, size);
+    } else if (errno == ENOMEM) {
+      return MFAIL;
+    }
+    if (hint_addr) {
+      /* First, try linear probing. */
+      if (retry < LJ_ALLOC_MMAP_PROBE_LINEAR) {
+	hint_addr += 0x1000000;
+	if (((hint_addr + size) >> LJ_ALLOC_MBITS) != 0)
+	  hint_addr = 0;
+	continue;
+      } else if (retry == LJ_ALLOC_MMAP_PROBE_LINEAR) {
+	/* Next, try a no-hint probe to get back an ASLR address. */
+	hint_addr = 0;
+	continue;
+      }
+    }
+    /* Finally, try pseudo-random probing. */
+    do {
+      hint_addr = lj_prng_u64(rs) & (((uintptr_t)1<<LJ_ALLOC_MBITS)-LJ_PAGESIZE);
+    } while (hint_addr < LJ_ALLOC_MMAP_PROBE_LOWER);
   }
   errno = olderr;
-  return CMFAIL;
+  return MFAIL;
 }
-
-#else
-
-#error "NYI: need an equivalent of MAP_32BIT for this 64 bit OS"
 
 #endif
 
-#else
+#if LJ_ALLOC_MMAP32
 
-/* 32 bit mode and GC64 mode is easy. */
-static LJ_AINLINE void *CALL_MMAP(size_t size)
+#if LJ_TARGET_SOLARIS
+#define LJ_ALLOC_MMAP32_START	((uintptr_t)0x1000)
+#else
+#define LJ_ALLOC_MMAP32_START	((uintptr_t)0)
+#endif
+
+#if LJ_ALLOC_MMAP_PROBE
+static void *mmap_map32(PRNGState *rs, size_t size)
+#else
+static void *mmap_map32(size_t size)
+#endif
+{
+#if LJ_ALLOC_MMAP_PROBE
+  static int fallback = 0;
+  if (fallback)
+    return mmap_probe(rs, size);
+#endif
+  {
+    int olderr = errno;
+    void *ptr = mmap((void *)LJ_ALLOC_MMAP32_START, size, MMAP_PROT, MAP_32BIT|MMAP_FLAGS, -1, 0);
+    errno = olderr;
+    /* This only allows 1GB on Linux. So fallback to probing to get 2GB. */
+#if LJ_ALLOC_MMAP_PROBE
+    if (ptr == MFAIL) {
+      fallback = 1;
+      return mmap_probe(rs, size);
+    }
+#endif
+    return ptr;
+  }
+}
+
+#endif
+
+#if LJ_ALLOC_MMAP32
+#if LJ_ALLOC_MMAP_PROBE
+#define CALL_MMAP(prng, size)	mmap_map32(prng, size)
+#else
+#define CALL_MMAP(prng, size)	mmap_map32(size)
+#endif
+#elif LJ_ALLOC_MMAP_PROBE
+#define CALL_MMAP(prng, size)	mmap_probe(prng, size)
+#else
+static void *mmap_plain(size_t size)
 {
   int olderr = errno;
   void *ptr = mmap(NULL, size, MMAP_PROT, MMAP_FLAGS, -1, 0);
   errno = olderr;
   return ptr;
 }
+#define CALL_MMAP(prng, size)	mmap_plain(size)
+#endif
+
+#if LJ_64 && !LJ_GC64 && ((defined(__FreeBSD__) && __FreeBSD__ < 10) || defined(__FreeBSD_kernel__)) && !LJ_TARGET_PS4
+
+#include <sys/resource.h>
+
+static void init_mmap(void)
+{
+  struct rlimit rlim;
+  rlim.rlim_cur = rlim.rlim_max = 0x10000;
+  setrlimit(RLIMIT_DATA, &rlim);  /* Ignore result. May fail later. */
+}
+#define INIT_MMAP()	init_mmap()
 
 #endif
 
-#ifndef INIT_MMAP
-#define INIT_MMAP()		((void)0)
-#endif
-#define DIRECT_MMAP(s)		CALL_MMAP(s)
-
-static LJ_AINLINE int CALL_MUNMAP(void *ptr, size_t size)
+static int CALL_MUNMAP(void *ptr, size_t size)
 {
   int olderr = errno;
   int ret = munmap(ptr, size);
@@ -309,10 +352,9 @@ static LJ_AINLINE int CALL_MUNMAP(void *ptr, size_t size)
   return ret;
 }
 
-#if LJ_TARGET_LINUX
+#if LJ_ALLOC_MREMAP
 /* Need to define _GNU_SOURCE to get the mremap prototype. */
-static LJ_AINLINE void *CALL_MREMAP_(void *ptr, size_t osz, size_t nsz,
-				     int flags)
+static void *CALL_MREMAP_(void *ptr, size_t osz, size_t nsz, int flags)
 {
   int olderr = errno;
   ptr = mremap(ptr, osz, nsz, flags);
@@ -332,12 +374,17 @@ static LJ_AINLINE void *CALL_MREMAP_(void *ptr, size_t osz, size_t nsz,
 
 #endif
 
-#ifndef CALL_MREMAP
-#define CALL_MREMAP(addr, osz, nsz, mv) ((void)osz, MFAIL)
+
+#ifndef INIT_MMAP
+#define INIT_MMAP()		((void)0)
 #endif
 
-#ifndef CALL_MUNMAP_FORCE
-#define CALL_MUNMAP_FORCE CALL_MUNMAP
+#ifndef DIRECT_MMAP
+#define DIRECT_MMAP(prng, s)	CALL_MMAP(prng, s)
+#endif
+
+#ifndef CALL_MREMAP
+#define CALL_MREMAP(addr, osz, nsz, mv) ((void)osz, MFAIL)
 #endif
 
 /* -----------------------  Chunk representations ------------------------ */
@@ -492,6 +539,7 @@ struct malloc_state {
   mchunkptr  smallbins[(NSMALLBINS+1)*2];
   tbinptr    treebins[NTREEBINS];
   msegment   seg;
+  PRNGState  *prng;
 };
 
 typedef struct malloc_state *mstate;
@@ -501,17 +549,18 @@ typedef struct malloc_state *mstate;
 /* -------------------------- system alloc setup ------------------------- */
 
 /* page-align a size */
-#define page_align(S) any_align(S,LJ_PAGESIZE)
+#define page_align(S)\
+ (((S) + (LJ_PAGESIZE - SIZE_T_ONE)) & ~(LJ_PAGESIZE - SIZE_T_ONE))
 
 /* granularity-align a size */
-#define granularity_align(S) any_align(S,DEFAULT_GRANULARITY)
+#define granularity_align(S)\
+  (((S) + (DEFAULT_GRANULARITY - SIZE_T_ONE))\
+   & ~(DEFAULT_GRANULARITY - SIZE_T_ONE))
 
-#ifndef mmap_align
 #if LJ_TARGET_WINDOWS
 #define mmap_align(S)	granularity_align(S)
 #else
 #define mmap_align(S)	page_align(S)
-#endif
 #endif
 
 /*  True if segment S holds address A */
@@ -548,7 +597,7 @@ static int has_segment_link(mstate m, msegmentptr ss)
   noncontiguous segments are added.
 */
 #define TOP_FOOT_SIZE\
-  (align_offset(chunk2mem(0))+pad_request(sizeof(struct malloc_segment))+MIN_CHUNK_SIZE)
+  (align_offset(TWO_SIZE_T_SIZES)+pad_request(sizeof(struct malloc_segment))+MIN_CHUNK_SIZE)
 
 /* ---------------------------- Indexing Bins ---------------------------- */
 
@@ -773,11 +822,11 @@ static int has_segment_link(mstate m, msegmentptr ss)
 
 /* -----------------------  Direct-mmapping chunks ----------------------- */
 
-static void *direct_alloc(size_t nb)
+static void *direct_alloc(mstate m, size_t nb)
 {
   size_t mmsize = mmap_align(nb + SIX_SIZE_T_SIZES + CHUNK_ALIGN_MASK);
   if (LJ_LIKELY(mmsize > nb)) {     /* Check for wrap around 0 */
-    char *mm = (char *)(DIRECT_MMAP(mmsize));
+    char *mm = (char *)(DIRECT_MMAP(m->prng, mmsize));
     if (mm != CMFAIL) {
       size_t offset = align_offset(chunk2mem(mm));
       size_t psize = mmsize - offset - DIRECT_FOOT_PAD;
@@ -789,6 +838,7 @@ static void *direct_alloc(size_t nb)
       return chunk2mem(p);
     }
   }
+  UNUSED(m);
   return NULL;
 }
 
@@ -937,7 +987,7 @@ static void *alloc_sys(mstate m, size_t nb)
 
   /* Directly map large chunks */
   if (LJ_UNLIKELY(nb >= DEFAULT_MMAP_THRESHOLD)) {
-    void *mem = direct_alloc(nb);
+    void *mem = direct_alloc(m, nb);
     if (mem != 0)
       return mem;
   }
@@ -946,7 +996,7 @@ static void *alloc_sys(mstate m, size_t nb)
     size_t req = nb + TOP_FOOT_SIZE + SIZE_T_ONE;
     size_t rsize = granularity_align(req);
     if (LJ_LIKELY(rsize > nb)) { /* Fail if wraps around zero */
-      char *mp = (char *)(CALL_MMAP(rsize));
+      char *mp = (char *)(CALL_MMAP(m->prng, rsize));
       if (mp != CMFAIL) {
 	tbase = mp;
 	tsize = rsize;
@@ -1173,12 +1223,13 @@ static void *tmalloc_small(mstate m, size_t nb)
 
 /* ----------------------------------------------------------------------- */
 
-void *lj_alloc_create(void)
+void *lj_alloc_create(PRNGState *rs)
 {
   size_t tsize = DEFAULT_GRANULARITY;
   char *tbase;
   INIT_MMAP();
-  tbase = (char *)(CALL_MMAP(tsize));
+  UNUSED(rs);
+  tbase = (char *)(CALL_MMAP(rs, tsize));
   if (tbase != CMFAIL) {
     size_t msize = pad_request(sizeof(struct malloc_state));
     mchunkptr mn;
@@ -1197,6 +1248,12 @@ void *lj_alloc_create(void)
   return NULL;
 }
 
+void lj_alloc_setprng(void *msp, PRNGState *rs)
+{
+  mstate ms = (mstate)msp;
+  ms->prng = rs;
+}
+
 void lj_alloc_destroy(void *msp)
 {
   mstate ms = (mstate)msp;
@@ -1205,7 +1262,7 @@ void lj_alloc_destroy(void *msp)
     char *base = sp->base;
     size_t size = sp->size;
     sp = sp->next;
-    CALL_MUNMAP_FORCE(base, size);
+    CALL_MUNMAP(base, size);
   }
 }
 
@@ -1304,7 +1361,7 @@ static LJ_NOINLINE void *lj_alloc_free(void *msp, void *ptr)
       if ((prevsize & IS_DIRECT_BIT) != 0) {
 	prevsize &= ~IS_DIRECT_BIT;
 	psize += prevsize + DIRECT_FOOT_PAD;
-	CALL_MUNMAP_FORCE((char *)p - prevsize, psize);
+	CALL_MUNMAP((char *)p - prevsize, psize);
 	return NULL;
       } else {
 	mchunkptr prev = chunk_minus_offset(p, prevsize);

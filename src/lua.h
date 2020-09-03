@@ -53,6 +53,7 @@
 #define LUA_MULTRET	(-1)
 
 /* Rio derives this from LUA_MAX_STACK */
+#define RIO_LUAI_MAXSTACK		15000
 
 /*
 ** XABI: pseudo-indices
@@ -67,10 +68,10 @@
 #define LUA_GLOBALSINDEX	(LUAI_FIRSTPSEUDOIDX-2)
 #define LUA_UVINDEX             LUA_GLOBALSINDEX
 #else /* 5.2 and 5.3 */
-#define LUAI_FIRSTPSEUDOIDX	(-1000000 - 1000 + 3)
-#define LUA_ENVIRONINDEX        (LUAI_FIRSTPSEUDOIDX-1)
-#define LUA_GLOBALSINDEX        (LUAI_FIRSTPSEUDOIDX-2)
-#define LUA_REGISTRYINDEX       (LUAI_FIRSTPSEUDOIDX-3)
+#define LUAI_FIRSTPSEUDOIDX	(-RIO_LUAI_MAXSTACK - 1000)
+#define LUA_REGISTRYINDEX       (LUAI_FIRSTPSEUDOIDX)
+#define LUA_ENVIRONINDEX        (LUAI_FIRSTPSEUDOIDX+1)
+#define LUA_GLOBALSINDEX        (LUAI_FIRSTPSEUDOIDX+2)
 #define LUA_UVINDEX             LUA_REGISTRYINDEX
 #endif
 #define lua_upvalueindex(i)	(LUA_UVINDEX-(i))
@@ -82,8 +83,8 @@
 #define LUA_RIDX_USERVAL        3 /* For lua_setuservalue(). */
 #define LUA_RIDX_COUNT          LUA_RIDX_USERVAL
 
-/* thread status; 0 is OK */
-#define LUA_OK          0
+/* thread status */
+#define LUA_OK		0
 #define LUA_YIELD	1
 #define LUA_ERRRUN	2
 #define LUA_ERRSYNTAX	3
@@ -483,6 +484,13 @@ LUA_API void *lua_upvalueid (lua_State *L, int idx, int n);
 LUA_API void lua_upvaluejoin (lua_State *L, int idx1, int n1, int idx2, int n2);
 LUA_API int lua_loadx (lua_State *L, lua_Reader reader, void *dt,
 		       const char *chunkname, const char *mode);
+LUA_API const lua_Number *lua_version (lua_State *L);
+LUA_API void lua_copy (lua_State *L, int fromidx, int toidx);
+LUA_API lua_Number lua_tonumberx (lua_State *L, int idx, int *isnum);
+LUA_API lua_Integer lua_tointegerx (lua_State *L, int idx, int *isnum);
+
+/* From Lua 5.3. */
+LUA_API int lua_isyieldable (lua_State *L);
 
 
 struct lua_Debug {

@@ -1,6 +1,6 @@
 /*
 ** String library.
-** Copyright (C) 2005-2016 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2020 Mike Pall. See Copyright Notice in luajit.h
 **
 ** Lua 5.2 semantics and string.match() compiling
 ** Copyright (C) 2014 Karel Tuma. See Copyright Notice in luajit.h
@@ -139,7 +139,7 @@ LJLIB_CF(string_dump)
 /* ------------------------------------------------------------------------ */
 
 /* macro to `unsign' a character */
-#define uchar(c)        ((unsigned char)(c))
+#define uchar(c)	((unsigned char)(c))
 
 #define L_ESC		'%'
 
@@ -682,7 +682,7 @@ static GCstr *string_fmt_tostring(lua_State *L, int arg, int retry)
 {
   TValue *o = L->base+arg-1;
   cTValue *mo;
-  lua_assert(o < L->top);  /* Caller already checks for existence. */
+  lj_assertL(o < L->top, "bad usage");  /* Caller already checks for existence. */
   if (LJ_LIKELY(tvisstr(o)))
     return strV(o);
   if (retry != 2 && !tvisnil(mo = lj_meta_lookup(L, o, MM_tostring))) {
@@ -759,7 +759,7 @@ again:
         break;
 #endif
       default:
-	lua_assert(0);
+	lj_assertL(0, "bad string format type");
 	break;
       }
     }

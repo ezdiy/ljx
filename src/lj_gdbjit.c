@@ -1,6 +1,6 @@
 /*
 ** Client for the GDB JIT API.
-** Copyright (C) 2005-2016 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2020 Mike Pall. See Copyright Notice in luajit.h
 */
 
 #define lj_gdbjit_c
@@ -296,6 +296,9 @@ enum {
 #elif LJ_TARGET_ARM
   DW_REG_SP = 13,
   DW_REG_RA = 14,
+#elif LJ_TARGET_ARM64
+  DW_REG_SP = 31,
+  DW_REG_RA = 30,
 #elif LJ_TARGET_PPC
   DW_REG_SP = 1,
   DW_REG_RA = 65,
@@ -360,7 +363,7 @@ static const ELFheader elfhdr_template = {
   .eosabi = 12,
 #elif defined(__DragonFly__)
   .eosabi = 0,
-#elif (defined(__sun__) && defined(__svr4__))
+#elif LJ_TARGET_SOLARIS
   .eosabi = 6,
 #else
   .eosabi = 0,
@@ -374,6 +377,8 @@ static const ELFheader elfhdr_template = {
   .machine = 62,
 #elif LJ_TARGET_ARM
   .machine = 40,
+#elif LJ_TARGET_ARM64
+  .machine = 183,
 #elif LJ_TARGET_PPC
   .machine = 20,
 #elif LJ_TARGET_MIPS
@@ -563,6 +568,13 @@ static void LJ_FASTCALL gdbjit_ehframe(GDBJITctx *ctx)
       int i;
       for (i = 11; i >= 4; i--) { DB(DW_CFA_offset|i); DUV(2+(11-i)); }
     }
+#elif LJ_TARGET_ARM64
+    {
+      int i;
+      DB(DW_CFA_offset|31); DUV(2);
+      for (i = 28; i >= 19; i--) { DB(DW_CFA_offset|i); DUV(3+(28-i)); }
+      for (i = 15; i >= 8; i--) { DB(DW_CFA_offset|32|i); DUV(28-i); }
+    }
 #elif LJ_TARGET_PPC
     {
       int i;
@@ -712,7 +724,7 @@ static void gdbjit_buildobj(GDBJITctx *ctx)
   SECTALIGN(ctx->p, sizeof(uintptr_t));
   gdbjit_initsect(ctx, GDBJIT_SECT_eh_frame, gdbjit_ehframe);
   ctx->objsize = (size_t)((char *)ctx->p - (char *)obj);
-  lua_assert(ctx->objsize < sizeof(GDBJITobj));
+  lj_assertX(ctx->objsize < sizeof(GDBJITobj), "GDBJITobj overflow");
 }
 
 #undef SECTALIGN
@@ -770,7 +782,8 @@ void lj_gdbjit_addtrace(jit_State *J, GCtrace *T)
   ctx.spadjp = CFRAME_SIZE_JIT +
 	       (MSize)(parent ? traceref(J, parent)->spadjust : 0);
   ctx.spadj = CFRAME_SIZE_JIT + T->spadjust;
-  lua_assert(startpc >= proto_bc(pt) && startpc < proto_bc(pt) + pt->sizebc);
+  lj_assertJ(startpc >= proto_bc(pt) && startpc < proto_bc(pt) + pt->sizebc,
+	     "start PC out of range");
   ctx.lineno = lj_debug_line(pt, proto_bcpos(pt, startpc));
   ctx.filename = proto_chunknamestr(pt);
   if (*ctx.filename == '@' || *ctx.filename == '=')

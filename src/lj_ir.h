@@ -1,6 +1,6 @@
 /*
 ** SSA IR (Intermediate Representation) format.
-** Copyright (C) 2005-2016 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2020 Mike Pall. See Copyright Notice in luajit.h
 */
 
 #ifndef _LJ_IR_H
@@ -74,7 +74,6 @@
   _(BSWAP,	N , ref, ___) \
   \
   _(ABS,	N , ref, ref) \
-  _(ATAN2,	N , ref, ref) \
   _(LDEXP,	N , ref, ref) \
   _(MIN,	C , ref, ref) \
   _(MAX,	C , ref, ref) \
@@ -106,6 +105,7 @@
   _(XLOAD,	L , ref, lit) \
   _(SLOAD,	L , lit, lit) \
   _(VLOAD,	L , ref, ___) \
+  _(ALEN,	L , ref, ref) \
   \
   _(ASTORE,	S , ref, ref) \
   _(HSTORE,	S , ref, ref) \
@@ -177,8 +177,7 @@ LJ_STATIC_ASSERT((int)IR_XLOAD + IRDELTA_L2S == (int)IR_XSTORE);
 /* FPMATH sub-functions. ORDER FPM. */
 #define IRFPMDEF(_) \
   _(FLOOR) _(CEIL) _(TRUNC)  /* Must be first and in this order. */ \
-  _(SQRT) _(EXP) _(EXP2) _(LOG) _(LOG2) _(LOG10) \
-  _(SIN) _(COS) _(TAN) \
+  _(SQRT) _(LOG) _(LOG2) \
   _(OTHER)
 
 typedef enum {
@@ -379,10 +378,12 @@ typedef struct IRType1 { uint8_t irt; } IRType1;
 #define irt_isint64(t)		(irt_typerange((t), IRT_I64, IRT_U64))
 
 #if LJ_GC64
+/* Include IRT_NIL, so IR(ASMREF_L) (aka REF_NIL) is considered 64 bit. */
 #define IRT_IS64 \
   ((1u<<IRT_NUM)|(1u<<IRT_I64)|(1u<<IRT_U64)|(1u<<IRT_P64)|\
    (1u<<IRT_LIGHTUD)|(1u<<IRT_STR)|(1u<<IRT_THREAD)|(1u<<IRT_PROTO)|\
-   (1u<<IRT_FUNC)|(1u<<IRT_CDATA)|(1u<<IRT_TAB)|(1u<<IRT_UDATA))
+   (1u<<IRT_FUNC)|(1u<<IRT_CDATA)|(1u<<IRT_TAB)|(1u<<IRT_UDATA)|\
+   (1u<<IRT_NIL))
 #elif LJ_64
 #define IRT_IS64 \
   ((1u<<IRT_NUM)|(1u<<IRT_I64)|(1u<<IRT_U64)|(1u<<IRT_P64)|(1u<<IRT_LIGHTUD))
@@ -414,11 +415,12 @@ static LJ_AINLINE IRType itype2irt(const TValue *tv)
 
 static LJ_AINLINE uint32_t irt_toitype_(IRType t)
 {
-  lua_assert(!LJ_64 || LJ_GC64 || t != IRT_LIGHTUD);
+  lj_assertX(!LJ_64 || LJ_GC64 || t != IRT_LIGHTUD,
+	     "no plain type tag for lightuserdata");
   if (LJ_DUALNUM && t > IRT_NUM) {
     return LJ_TISNUM;
   } else {
-    lua_assert(t <= IRT_NUM);
+    lj_assertX(t <= IRT_NUM, "no plain type tag for IR type %d", t);
     return ~(uint32_t)t;
   }
 }
@@ -562,6 +564,11 @@ typedef union IRIns {
   TValue tv;		/* TValue constant (overlaps entire slot). */
 } IRIns;
 
+#define ir_isk64(ir) \
+  ((ir)->o == IR_KNUM || (ir)->o == IR_KINT64 || \
+   (LJ_GC64 && \
+    ((ir)->o == IR_KGC || (ir)->o == IR_KPTR || (ir)->o == IR_KKPTR)))
+
 #define ir_kgc(ir)	check_exp((ir)->o == IR_KGC, gcref((ir)[LJ_GC64].gcr))
 #define ir_kstr(ir)	(gco2str(ir_kgc((ir))))
 #define ir_ktab(ir)	(gco2tab(ir_kgc((ir))))
@@ -569,12 +576,7 @@ typedef union IRIns {
 #define ir_kcdata(ir)	(gco2cd(ir_kgc((ir))))
 #define ir_knum(ir)	check_exp((ir)->o == IR_KNUM, &(ir)[1].tv)
 #define ir_kint64(ir)	check_exp((ir)->o == IR_KINT64, &(ir)[1].tv)
-#define ir_k64(ir) \
-  check_exp((ir)->o == IR_KNUM || (ir)->o == IR_KINT64 || \
-	    (LJ_GC64 && \
-	     ((ir)->o == IR_KGC || \
-	      (ir)->o == IR_KPTR || (ir)->o == IR_KKPTR)), \
-	    &(ir)[1].tv)
+#define ir_k64(ir)	check_exp(ir_isk64(ir), &(ir)[1].tv)
 #define ir_kptr(ir) \
   check_exp((ir)->o == IR_KPTR || (ir)->o == IR_KKPTR, \
     mref((ir)[LJ_GC64].ptr, void))

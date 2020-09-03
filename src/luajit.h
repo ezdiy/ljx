@@ -1,6 +1,7 @@
 /*
 ** LuaJIT -- a Just-In-Time Compiler for Lua. http://luajit.org/
-** Copyright (C) 2005-2016 Mike Pall. All rights reserved.
+**
+** Copyright (C) 2005-2020 Mike Pall. All rights reserved.
 **
 ** LJX - a bastardization of LuaJIT
 ** Copyright (C) 2014-2016 Karel Tuma, kat@lua.cz
@@ -52,11 +53,12 @@
 
 #include "lua.h"
 
-#define LUAJIT_VERSION		"LuaJIT 2.1.0-beta2"
+#define LUAJIT_VERSION		"LuaJIT 2.1.0-beta3"
 #define LJ_LJX_VERSION          LUAJIT_VERSION "+" LJX_VERSION
+
 #define LUAJIT_VERSION_NUM	20100  /* Version 2.1.0 = 02.01.00. */
-#define LUAJIT_VERSION_SYM	luaJIT_version_2_1_0_beta2
-#define LUAJIT_COPYRIGHT	"Copyright (C) 2005-2016 Mike Pall"
+#define LUAJIT_VERSION_SYM	luaJIT_version_2_1_0_beta3
+#define LUAJIT_COPYRIGHT	"Copyright (C) 2005-2020 Mike Pall"
 #define LUAJIT_URL		"http://luajit.org/"
 
 /* Let it be known who is responsible for this bastardization */

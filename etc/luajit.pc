@@ -1,6 +1,14 @@
 # Package information for LuaJIT to be used by pkg-config.
+<<<<<<< HEAD
 version=LJX
 abiver=5.2
+=======
+majver=2
+minver=1
+relver=0
+version=${majver}.${minver}.${relver}-beta3
+abiver=5.1
+>>>>>>> ff1e72acead01df7d8ed0fbb31efd32f57953618
 
 prefix=/usr/local
 multilib=lib
