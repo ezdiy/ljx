@@ -62,19 +62,12 @@ LUA_API int lua_loadx(lua_State *L, lua_Reader reader, void *data,
 }
 
 LUA_API int lua_load(lua_State *L, lua_Reader reader, void *data,
-		     const char *chunkname
-#if LJ_ABIVER != 51
-		     , const char *mode
-#endif
-		     )
+		     const char *chunkname , const char *mode)
 {
-  return lua_loadx(L, reader, data, chunkname,
-#if LJ_ABIVER != 51
-                   mode
-#else
-                   NULL
-#endif
-      );
+  // CAVEAT: `mode` is merrily ignored, for it's value is garbage on 5.1 ABI.
+  // This is still safe to do as lua never used stdcall where this would cause real trouble.
+  // Use loadx if you need to enforce b/t flag.
+  return lua_loadx(L, reader, data, chunkname, NULL);
 }
 
 typedef struct FileReaderCtx {

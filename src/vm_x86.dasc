@@ -2,8 +2,9 @@
 |// Bytecode interpreter, fast functions and helper functions.
 |// Copyright (C) 2005-2020 Mike Pall. See Copyright Notice in luajit.h
 |
-|// Lua 5.2 modifications: ESETV, setmetatable __gc.
+|// Lua 5.2/3/4 modifications:
 |// Copyright (C) 2014 Karel Tuma. See Copyright Notice in luajit.h
+|// ez 2020
 |
 |.if P64
 |.arch x64
@@ -942,13 +943,7 @@ static void build_subroutines(BuildCtx *ctx)
   |  mov TMP1, RC			// RC = GCstr *
   |  mov TMP2, LJ_TSTR
   |  lea RCa, TMP1			// Store temp. TValue in TMP1/TMP2.
-  |  cmp PC_OP, BC_GGET
-  |  jne >1
-  |  lea RA, [DISPATCH+DISPATCH_GL(tmptv)]  // Store fn->l.env in g->tmptv.
-  |  mov [RA], TAB:RB			// RB = GCtab *
-  |  mov dword [RA+4], LJ_TTAB
-  |  mov RB, RA
-  |  jmp >2
+  |  jmp >1
   |
   |->vmeta_tgetb:
   |  movzx RC, PC_RC
@@ -1008,7 +1003,7 @@ static void build_subroutines(BuildCtx *ctx)
   |  lea PC, [RA+FRAME_CONT]
   |  sub PC, BASE
   |  mov LFUNC:RB, [RA-8]		// Guaranteed to be a function here.
-  |  mov NARGS:RD, 3+1			// 2 args for func(t, k).
+  |  mov NARGS:RD, 3+1			// LJX: 3 args for func(t, k, origt).
   |  jmp ->vm_call_dispatch_f
   |
   |->vmeta_tgetr:
@@ -1030,13 +1025,7 @@ static void build_subroutines(BuildCtx *ctx)
   |  mov TMP1, RC			// RC = GCstr *
   |  mov TMP2, LJ_TSTR
   |  lea RCa, TMP1			// Store temp. TValue in TMP1/TMP2.
-  |  cmp PC_OP, BC_GSET
-  |  jne >1
-  |  lea RA, [DISPATCH+DISPATCH_GL(tmptv)]  // Store fn->l.env in g->tmptv.
-  |  mov [RA], TAB:RB			// RB = GCtab *
-  |  mov dword [RA+4], LJ_TTAB
-  |  mov RB, RA
-  |  jmp >2
+  |  jmp >1
   |
   |->vmeta_tsetb:
   |  movzx RC, PC_RC
@@ -1571,8 +1560,8 @@ static void build_subroutines(BuildCtx *ctx)
   |  mov TAB:RB, [BASE]
   |  cmp dword TAB:RB->metatable, 0;  jne ->fff_fallback
   |  cmp dword [BASE+12], LJ_TTAB;  jne ->fff_fallback
+  |  // LJX: fallback if metatable contains __gc
   |  mov TAB:RA, [BASE+8]
-  |  // fallback if metatable contains __gc
   |  test byte TAB:RA->nomm, 1<<MM_gc; jz ->fff_fallback
   |  mov TAB:RB->metatable, TAB:RA
   |  mov PC, [BASE-4]
@@ -3779,7 +3768,7 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     break;
 
   /* -- Binary ops -------------------------------------------------------- */
-  case BC_IDIV:
+  case BC_IDIV: // LJX: Binary ops all bail to arith_vv and ultimately lj_meta_arith
   case BC_BAND:
   case BC_BOR:
   case BC_BXOR:
@@ -4024,20 +4013,6 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |.endif
     |  ins_next
     break;
-  case BC_ESETV: // TBD: NOBARRIER?
-    |  ins_AD
-    |  checktp RD, LJ_TTAB
-    |  mov RD, [BASE+RD*8] // val to assign
-    |  mov LFUNC:RB, [BASE-8] // lfunc
-    |  jne >2 // silently skip if not table
-    |1:
-    |  mov LFUNC:RB->env, RD // set env
-    |  mov LFUNC:RB, LFUNC:RB->next_ENV
-    |  cmp LFUNC:RB, [BASE-8] // set for all members sharing this _ENV uv
-    |  jnz <1
-    |2:
-    |  ins_refetch
-    break;
   case BC_USETV:
 #define TV2MARKOFS \
  ((int32_t)offsetof(GCupval, marked)-(int32_t)offsetof(GCupval, tv))
@@ -4233,21 +4208,6 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  movzx RD, PC_RD			// Need to reload RD.
     |  not RDa
     |  jmp <2
-    break;
-
-  case BC_GGET:
-    |  ins_AND	// RA = dst, RD = str const (~)
-    |  mov LFUNC:RB, [BASE-8]
-    |  mov TAB:RB, LFUNC:RB->env
-    |  mov STR:RC, [KBASE+RD*4]
-    |  jmp ->BC_TGETS_Z
-    break;
-  case BC_GSET:
-    |  ins_AND	// RA = src, RD = str const (~)
-    |  mov LFUNC:RB, [BASE-8]
-    |  mov TAB:RB, LFUNC:RB->env
-    |  mov STR:RC, [KBASE+RD*4]
-    |  jmp ->BC_TSETS_Z
     break;
 
   case BC_TGETV:

@@ -143,7 +143,7 @@ size_t lj_gc_separateudata(global_State *g, int all)
   GCobj *o;
   while ((o = gcref(*p)) != NULL) {
     int isud = o->gch.gct == ~LJ_TUDATA;
-    lua_assert(isud || o->gch.gct == ~LJ_TTAB);
+    lj_assertG(isud || o->gch.gct == ~LJ_TTAB, "inconsistent gc data separation");
     if (!(iswhite(o) || all) || (isud && isfinalized(&(o->gch)))) {
       p = &o->gch.nextgc;  /* Nothing to do. */
     } else if (isud && !lj_meta_fastg(g, tabref(o->ud.metatable), MM_gc)) {

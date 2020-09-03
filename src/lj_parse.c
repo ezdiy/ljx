@@ -460,7 +460,7 @@ static void expr_discharge(FuncState *fs, ExpDesc *e)
   if (e->k == VUPVAL) {
     ins = BCINS_AD(BC_UGET, 0, e->u.s.info);
   } else if (e->k == VGLOBAL) {
-    ins = BCINS_AD(BC_GGET, 0, const_str(fs, e));
+    abort();
   } else if (e->k == VINDEXED) {
     BCReg rc = e->u.s.aux;
     if ((int32_t)rc < 0) {
@@ -644,10 +644,7 @@ static void bcemit_store(FuncState *fs, ExpDesc *var, ExpDesc *e)
   } else if (var->k == VUPVAL) {
     fs->ls->vstack[var->u.s.aux].info |= VSTACK_VAR_RW;
     expr_toval(fs, e);
-    /* setting _ENV is special opcode */
-    if (var->u.s.aux == 0)
-      ins = BCINS_AD(BC_ESETV, var->u.s.info, expr_toanyreg(fs, e));
-    else if (e->k <= VKTRUE)
+    if (e->k <= VKTRUE)
       ins = BCINS_AD(BC_USETP, var->u.s.info, const_pri(e));
     else if (e->k == VKSTR)
       ins = BCINS_AD(BC_USETS, var->u.s.info, const_str(fs, e));
@@ -656,8 +653,7 @@ static void bcemit_store(FuncState *fs, ExpDesc *var, ExpDesc *e)
     else
       ins = BCINS_AD(BC_USETV, var->u.s.info, expr_toanyreg(fs, e));
   } else if (var->k == VGLOBAL) {
-    BCReg ra = expr_toanyreg(fs, e);
-    ins = BCINS_AD(BC_GSET, ra, const_str(fs, var));
+    abort();
   } else {
     BCReg ra, rc;
     lj_assertFS(var->k == VINDEXED, "bad expr type %d", var->k);
@@ -1055,7 +1051,7 @@ static void lex_match(LexState *ls, LexToken what, LexToken who, BCLine line)
 static GCstr *lex_str(LexState *ls)
 {
   GCstr *s;
-  if (ls->tok != TK_name && ((!LJ_51) || ls->tok != TK_goto))
+  if (ls->tok != TK_name && ls->tok != TK_goto)
     err_token(ls, TK_name);
   s = strV(&ls->tokval);
   lj_lex_next(ls);
@@ -1118,31 +1114,12 @@ static void var_remove(LexState *ls, BCReg tolevel)
 /* Mark scope as having an upvalue. */
 static void fscope_uvmark(FuncState *fs, BCReg level)
 {
-  int i;
-  for (i = fs->nactvar-1; i >= 0; i--) {
-    if (n == strref(var_get(fs->ls, fs, i).name))
-      return (BCReg)i;
-  }
-  return (BCReg)-1;  /* Not found. */
+  FuncScope *bl;
+  for (bl = fs->bl; bl && bl->nactvar > level; bl = bl->prev)
+    ;
+  if (bl)
+    bl->flags |= FSCOPE_UPVAL;
 }
-
-/* Lookup or add upvalue index. */
-static MSize var_lookup_uv(FuncState *fs, MSize vidx, ExpDesc *e)
-{
-  MSize i, n = fs->nuv;
-  for (i = 0; i < n; i++)
-    if (fs->uvmap[i] == vidx)
-      return i;  /* Already exists. */
-  /* Otherwise create a new one. */
-  checklimit(fs, fs->nuv, LJ_MAX_UPVAL, "upvalues");
-  lj_assertFS(e->k == VLOCAL || e->k == VUPVAL, "bad expr type %d", e->k);
-  fs->uvmap[n] = (uint16_t)vidx;
-  fs->uvtmp[n] = (uint16_t)(e->k == VLOCAL ? vidx : LJ_MAX_VSTACK+e->u.s.info);
-  fs->nuv = n+1;
-  return n;
->>>>>>> ff1e72acead01df7d8ed0fbb31efd32f57953618
-}
-
 
 static void expr_index(FuncState *fs, ExpDesc *t, ExpDesc *e);
 
@@ -1199,6 +1176,7 @@ static void do_var_lookup(LexState LJ_RESTRICT *ls, ExpDesc LJ_RESTRICT *e, GCst
   /* Nothing found, it is global. */
   do_var_lookup(ls, e, ls->env);
   if (hasenv) { /* lexical _ENV.name */
+    // TODO: note down name being pairs/next for predict_next()
     expr_init(&key, VKSTR, 0);
     key.u.sval = name;
     expr_toanyreg(ls->fs, e);
@@ -1206,9 +1184,7 @@ static void do_var_lookup(LexState LJ_RESTRICT *ls, ExpDesc LJ_RESTRICT *e, GCst
     return;
   }
 
-  /* Otherwise true global. */
-  expr_init(e, VGLOBAL, 0);
-  e->u.sval = name;
+  abort();
   return;
 
 link_uvs:;
@@ -1539,7 +1515,7 @@ static void fs_fixup_uv1(FuncState *fs, GCproto *pt, uint16_t *uv)
         p->uvcount[i]--;
         uv[i] = p->prev->uvval[uv[i] & PROTO_UV_MASK];
       } else {
-        lua_assert(0);
+        lj_assertFS(0, "expected uv chain during uv fixup");
       }
     }
     p = p->prev;
@@ -1549,13 +1525,13 @@ stop:;
   if (p != fs) {
     /* Create uv chain. */
     for (t = fs->prev; t != p; t = t->prev) {
-      lua_assert(t->nuv < LJ_MAX_UPVAL);
+      lj_assertFS(t->nuv < LJ_MAX_UPVAL, "too many upvalues (chaining for lift)");
       t->uvcount[t->nuv] = 1;
       t->uvmap[t->nuv] = LJ_MAX_VSTACK;
       t->uvval[t->nuv++] = t->prev->nuv | PROTO_UV_CHAINED;
     }
     /* And install the closure. */
-    lua_assert(t->nuv < LJ_MAX_UPVAL);
+    lj_assertFS(t->nuv < LJ_MAX_UPVAL, "too many upvalues (lifted closure)");
     t->uvval[t->nuv] = const_gc(t, obj2gco(pt), LJ_TPROTO) | PROTO_UV_CLOSURE;
     t->uvmap[t->nuv] = LJ_MAX_VSTACK;
     t->uvcount[t->nuv++] = 1;
@@ -1902,7 +1878,7 @@ static void expr_table(LexState *ls, ExpDesc *e)
       if (!expr_isk(&key)) expr_index(fs, e, &key);
       if (expr_isnumk(&key) && expr_numiszero(&key)) needarr = 1; else nhash++;
       lex_check(ls, '=');
-    } else if ((ls->tok == TK_name || (LJ_51 && ls->tok == TK_goto)) &&
+    } else if ((ls->tok == TK_name) &&
 	       lj_lex_lookahead(ls) == '=') {
       expr_str(ls, &key);
       lex_check(ls, '=');
@@ -1998,7 +1974,7 @@ static BCReg parse_params(LexState *ls, int needself)
     var_new_lit(ls, nparams++, "self");
   if (ls->tok != ')') {
     do {
-      if (ls->tok == TK_name || (LJ_51 && ls->tok == TK_goto)) {
+      if (ls->tok == TK_name) {
 	var_new(ls, nparams++, lex_str(ls));
       } else if (ls->tok == TK_dots) {
 	lj_lex_next(ls);
@@ -2078,10 +2054,6 @@ static void parse_args(LexState *ls, ExpDesc *e)
   BCReg base;
   BCLine line = ls->linenumber;
   if (ls->tok == '(') {
-#if LJ_51
-    if (line != ls->lastline)
-      err_syntax(ls, LJ_ERR_XAMBIG);
-#endif
     lj_lex_next(ls);
     if (ls->tok == ')') {  /* f(). */
       args.k = VVOID;
@@ -2127,7 +2099,7 @@ static void expr_primary(LexState *ls, ExpDesc *v)
     expr(ls, v);
     lex_match(ls, ')', '(', line);
     expr_discharge(ls->fs, v);
-  } else if (ls->tok == TK_name || (LJ_51 && ls->tok == TK_goto)) {
+  } else if (ls->tok == TK_name) {
     var_lookup(ls, v);
   } else {
     err_syntax(ls, LJ_ERR_XSYMBOL);
@@ -2584,7 +2556,7 @@ static void parse_label(LexState *ls)
       synlevel_begin(ls);
       parse_label(ls);
       synlevel_end(ls);
-    } else if (!LJ_51 && ls->tok == ';') {
+    } else if (ls->tok == ';') {
       lj_lex_next(ls);
     } else {
       break;
@@ -2702,7 +2674,7 @@ static int predict_next(LexState *ls, FuncState *fs, BCPos pc)
   BCIns ins = fs->bcbase[pc].ins;
   int idx;
   GCstr *name;
-  cTValue *o;
+  //cTValue *o;
   switch (bc_op(ins)) {
   case BC_MOV:
     name = gco2str(gcref(var_get(ls, fs, bc_d(ins)).name));
@@ -2712,14 +2684,17 @@ static int predict_next(LexState *ls, FuncState *fs, BCPos pc)
     if (idx == LJ_MAX_VSTACK) return 0; /* UV not associated with var */
     name = gco2str(gcref(ls->vstack[idx].name));
     break;
+#if 0
   case BC_GGET:
     /* There's no inverse index (yet), so lookup the strings. */
+    /* FIXME: Note down these when we promote the global looup to _ENV */
     o = lj_tab_getstr(fs->kt, lj_str_newlit(ls->L, "pairs"));
     if (o && tvhaskslot(o) && tvkslot(o) == bc_d(ins))
       return 1;
     o = lj_tab_getstr(fs->kt, lj_str_newlit(ls->L, "next"));
     if (o && tvhaskslot(o) && tvkslot(o) == bc_d(ins))
       return 1;
+#endif
     return 0;
   default:
     return 0;
@@ -2861,21 +2836,17 @@ static int parse_stmt(LexState *ls)
   case TK_break:
     lj_lex_next(ls);
     parse_break(ls);
-    return LJ_51;
-#if !LJ_51
+    break;
   case ';':
     lj_lex_next(ls);
     break;
-#endif
   case TK_label:
     parse_label(ls);
     break;
   case TK_goto:
-    if (!LJ_51 || lj_lex_lookahead(ls) == TK_name) {
-      lj_lex_next(ls);
-      parse_goto(ls);
-      break;
-    }
+    lj_lex_next(ls);
+    parse_goto(ls);
+    break;
     /* fallthrough */
   default:
     parse_call_assign(ls);
@@ -2922,7 +2893,7 @@ GCproto *lj_parse(LexState *ls)
   fs.bclim = 0;
   fs.flags |= PROTO_VARARG;  /* Main chunk is always a vararg func. */
 
-  /* Pretend _ENV is coming from previous virtual scope */
+  /* Pretend _ENV is coming from a previous virtual scope. This UV is later patched in by chunk loader. */
   ls->env = lj_parse_keepstr(ls, "_ENV", 4);
   var_new(ls, 0, ls->env);
   ls->vstack[0].startpc = 0;
@@ -2933,7 +2904,7 @@ GCproto *lj_parse(LexState *ls)
   fs.uvval[0] = PROTO_UV_ENV;
   fs.nuv++;
   fs.vbase = 1;
-  lua_assert(ls->vtop == 1);
+  lj_assertFS(ls->vtop == 1);
   fscope_begin(&fs, &bl, 0);
   bcemit_AD(&fs, BC_FUNCV, 0, 0);  /* Placeholder. */
   lj_lex_next(ls);  /* Read-ahead first token. */
@@ -2943,7 +2914,6 @@ GCproto *lj_parse(LexState *ls)
   pt = fs_finish(ls, ls->linenumber);
   L->top--;  /* Drop chunkname. */
   lj_assertL(fs.prev == NULL && ls->fs == NULL, "mismatched frame nesting");
-  // lj_assertL(pt->sizeuv == 0, "toplevel proto has upvalues"); - it's allowed to in 5.2
   return pt;
 }
 

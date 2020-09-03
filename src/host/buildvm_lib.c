@@ -383,10 +383,6 @@ void emit_lib(BuildCtx *ctx)
 	  ok = LJ_HASJIT;
 	else if (!strcmp(buf, "#if LJ_HASFFI\n"))
 	  ok = LJ_HASFFI;
-	else if (!strcmp(buf, "#if LJ_51\n"))
-	  ok = LJ_51;
-	else if (!strcmp(buf, "#if !LJ_51\n"))
-	  ok = !LJ_51;
 	else if (!strcmp(buf, "#if LJ_53\n"))
 	  ok = LJ_53;
 	else if (!strcmp(buf, "#if !LJ_53\n"))

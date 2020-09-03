@@ -1,6 +1,8 @@
 |// Low-level VM code for ARM CPUs.
 |// Bytecode interpreter, fast functions and helper functions.
 |// Copyright (C) 2005-2020 Mike Pall. See Copyright Notice in luajit.h
+|//
+|// Lua 5.3 port by ez, 2020.
 |
 |.arch arm
 |.section code_op, code_sub
@@ -620,10 +622,10 @@ static void build_subroutines(BuildCtx *ctx)
   |   ins_next3
   |
   |3:  // Call __index metamethod.
-  |  // BASE = base, L->top = new base, stack = cont/func/t/k
+  |  // BASE = base, L->top = new base, stack = cont/func/t/k/origt
   |   rsb CARG1, BASE, #FRAME_CONT
   |  ldr BASE, L->top
-  |    mov NARGS8:RC, #16		// 2 args for func(t, k).
+  |    mov NARGS8:RC, #24		// LJX: 3 args for func(t, k, origt).
   |    str PC, [BASE, #-12]		// [cont|PC]
   |   add PC, CARG1, BASE
   |  ldr LFUNC:CARG3, [BASE, FRAME_FUNC]  // Guaranteed to be a function here.
@@ -1047,6 +1049,11 @@ static void build_subroutines(BuildCtx *ctx)
   |    ldrbeq CARG4, TAB:CARG1->marked
   |   cmpeq TAB:RB, #0
   |  bne ->fff_fallback
+  |  // LJX: fallback if metatable contains __gc. TODO: Is RA/RC free to use? To avoid pipeline stall from above.
+  |  ldrb RB, TAB:CARG3->nomm
+  |  tst RB, #1<<MM_gc
+  |  beq ->fff_fallback
+  |  // LJX: end
   |    tst CARG4, #LJ_GC_BLACK		// isblack(table)
   |     str TAB:CARG3, TAB:CARG1->metatable
   |    beq ->fff_restv
@@ -2958,7 +2965,22 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  b ->vmeta_len
     break;
 
+#if LJ_53
+  case BC_BNOT:
+    |  b ->vmeta_unm
+    break;
+
   /* -- Binary ops -------------------------------------------------------- */
+
+  case BC_IDIV: // LJX: Binary ops all bail to arith_vv and ultimately lj_meta_arith
+  case BC_BAND:
+  case BC_BOR:
+  case BC_BXOR:
+  case BC_SHL:
+  case BC_SHR:
+    |  b ->vmeta_arith_vv
+    break;
+#endif
 
     |.macro ins_arithcheck, cond, ncond, target
     ||if (vk == 1) {
@@ -3415,21 +3437,6 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  bl extern lj_gc_step_fixtop  // (lua_State *L)
     |  mov CARG1, L
     |  b <1
-    break;
-
-  case BC_GGET:
-    |  // RA = dst*8, RC = str_const (~)
-  case BC_GSET:
-    |  // RA = dst*8, RC = str_const (~)
-    |  ldr LFUNC:CARG2, [BASE, FRAME_FUNC]
-    |   mvn RC, RC
-    |  ldr TAB:CARG1, LFUNC:CARG2->env
-    |   ldr STR:RC, [KBASE, RC, lsl #2]
-    if (op == BC_GGET) {
-      |  b ->BC_TGETS_Z
-    } else {
-      |  b ->BC_TSETS_Z
-    }
     break;
 
   case BC_TGETV:

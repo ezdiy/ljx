@@ -57,7 +57,7 @@
 #define LJ_LJX_VERSION          LUAJIT_VERSION "+" LJX_VERSION
 
 #define LUAJIT_VERSION_NUM	20100  /* Version 2.1.0 = 02.01.00. */
-#define LUAJIT_VERSION_SYM	luaJIT_version_2_1_0_beta3
+#define LUAJIT_VERSION_SYM	luaJIT_ljx
 #define LUAJIT_COPYRIGHT	"Copyright (C) 2005-2020 Mike Pall"
 #define LUAJIT_URL		"http://luajit.org/"
 

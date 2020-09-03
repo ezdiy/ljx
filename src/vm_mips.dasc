@@ -4,6 +4,8 @@
 |//
 |// MIPS soft-float support contributed by Djordje Kovacevic and
 |// Stefan Pejic from RT-RK.com, sponsored by Cisco Systems, Inc.
+|//
+|// Lua 5.3 port by ez, 2020.
 |
 |.arch mips
 |.section code_op, code_sub
@@ -750,13 +752,13 @@ static void build_subroutines(BuildCtx *ctx)
   |  ins_next2
   |
   |3:  // Call __index metamethod.
-  |  // BASE = base, L->top = new base, stack = cont/func/t/k
+  |  // BASE = base, L->top = new base, stack = cont/func/t/k/origt
   |  lw BASE, L->top
   |  sw PC, -16+HI(BASE)		// [cont|PC]
   |   subu PC, BASE, TMP1
   |  lw LFUNC:RB, FRAME_FUNC(BASE)	// Guaranteed to be a function here.
   |  b ->vm_call_dispatch_f
-  |.  li NARGS8:RC, 16			// 2 args for func(t, k).
+  |.  li NARGS8:RC, 24			// LJX: 3 args for func(t, k).
   |
   |->vmeta_tgetr:
   |  load_got lj_tab_getinth
@@ -1189,9 +1191,14 @@ static void build_subroutines(BuildCtx *ctx)
   |  bne SFARG1HI, AT, ->fff_fallback
   |.  addiu SFARG2HI, SFARG2HI, -LJ_TTAB
   |  lw TAB:TMP1, TAB:SFARG1LO->metatable
-  |   lbu TMP3, TAB:SFARG1LO->marked
+  |  // LJX: fallback if metatable contains __gc. TODO: This scheduling looks messy.
+  |  lbu TMP0, TAB:SFARG2LO->nomm
   |  or AT, SFARG2HI, TAB:TMP1
+  |  lbu TMP3, TAB:SFARG1LO->marked
   |  bnez AT, ->fff_fallback
+  |.  andi TMP0, TMP0, 1<<MM_gc
+  |  beqz TMP0, ->fff_fallback
+  |  // LJX: end
   |.  andi AT, TMP3, LJ_GC_BLACK	// isblack(table)
   |  beqz AT, ->fff_restv
   |.  sw TAB:SFARG2LO, TAB:SFARG1LO->metatable
@@ -1285,15 +1292,10 @@ static void build_subroutines(BuildCtx *ctx)
   |  li AT, LJ_TTAB
   |  bne SFARG1HI, AT, ->fff_fallback
   |.  lw PC, FRAME_PC(BASE)
-#if !LJ_51
   |  lw TAB:TMP2, TAB:SFARG1LO->metatable
   |  lw TMP0, CFUNC:RB->upvalue[0].u32.hi
   |   lw TMP1, CFUNC:RB->upvalue[0].u32.lo
   |  bnez TAB:TMP2, ->fff_fallback
-#else
-  |  lw TMP0, CFUNC:RB->upvalue[0].u32.hi
-  |   lw TMP1, CFUNC:RB->upvalue[0].u32.lo
-#endif
   |.  addiu RA, BASE, -8
   |   sw TISNIL, 8+HI(BASE)
   |  sw TMP0, HI(RA)
@@ -1351,15 +1353,10 @@ static void build_subroutines(BuildCtx *ctx)
   |  li AT, LJ_TTAB
   |  bne SFARG1HI, AT, ->fff_fallback
   |.  lw PC, FRAME_PC(BASE)
-#if !LJ_51
   |  lw TAB:TMP2, TAB:SFARG1LO->metatable
   |  lw TMP0, CFUNC:RB->upvalue[0].u32.hi
   |   lw TMP1, CFUNC:RB->upvalue[0].u32.lo
   |  bnez TAB:TMP2, ->fff_fallback
-#else
-  |  lw TMP0, CFUNC:RB->upvalue[0].u32.hi
-  |   lw TMP1, CFUNC:RB->upvalue[0].u32.lo
-#endif
   |.  addiu RA, BASE, -8
   |   sw TISNUM, 8+HI(BASE)
   |   sw r0, 8+LO(BASE)
@@ -3405,7 +3402,22 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |.  nop
     break;
 
+#if LJ_53
+  case BC_BNOT:
+    |  b ->vmeta_unm
+    |.  nop
+    break;
   /* -- Binary ops -------------------------------------------------------- */
+  case BC_IDIV: // LJX: Binary ops all bail to arith_vv and ultimately lj_meta_arith
+  case BC_BAND:
+  case BC_BOR:
+  case BC_BXOR:
+  case BC_SHL:
+  case BC_SHR:
+    |  b ->vmeta_arith_vv
+    |.  nop
+    break;
+#endif
 
     |.macro fpmod, a, b, c
     |  bal ->vm_floor     // floor(b/c)
@@ -3933,23 +3945,6 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |.  move CARG1, L
     |  b <1
     |.  move RD, MULTRES
-    break;
-
-  case BC_GGET:
-    |  // RA = dst*8, RD = str_const*8 (~)
-  case BC_GSET:
-    |  // RA = src*8, RD = str_const*8 (~)
-    |  lw LFUNC:TMP2, FRAME_FUNC(BASE)
-    |   srl TMP1, RD, 1
-    |   subu TMP1, KBASE, TMP1
-    |  lw TAB:RB, LFUNC:TMP2->env
-    |  lw STR:RC, -4(TMP1)		// KBASE-4-str_const*4
-    if (op == BC_GGET) {
-      |  b ->BC_TGETS_Z
-    } else {
-      |  b ->BC_TSETS_Z
-    }
-    |.  addu RA, BASE, RA
     break;
 
   case BC_TGETV:

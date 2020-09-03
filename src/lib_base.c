@@ -131,10 +131,8 @@ LJLIB_ASM(setmetatable)		LJLIB_REC(.)
     lj_err_caller(L, LJ_ERR_PROTMT);
   setgcref(t->metatable, obj2gco(mt));
   if (mt) { 
-#if !LJ_51
     if (lj_meta_fast(L, mt, MM_gc))
       lj_gc_tab_finalized(L, (GCobj*)t);
-#endif
     lj_gc_objbarriert(L, t, mt);
   }
   settabV(L, L->base-1-LJ_FR2, t);
@@ -177,8 +175,9 @@ LJLIB_CF(setfenv)
   fn = &gcval(o)->fn;
   if (!isluafunc(fn))
     lj_err_caller(L, LJ_ERR_SETFENV);
-  setgcref(fn->l.env, obj2gco(t));
-  lj_gc_objbarrier(L, obj2gco(fn), t);
+  ljx_func_setfenv(L, fn, t);
+  //setgcref(L, fn, obj2gco(t));
+  //lj_gc_objbarrier(L, obj2gco(fn), t);
   setfuncV(L, L->top++, fn);
   return 1;
 }
@@ -265,7 +264,7 @@ LJLIB_ASM(tonumber)		LJLIB_REC(.)
 
   if (base == 0) {
     TValue *o = lj_lib_checkany(L, 1);
-#if !LJ_51
+#if 1
     base = 10;
     /* TBD: This is intentionally super ugly - implement sane strict number switching. */
     int i; if (tvisstr(o)) for (i = 0; i < strV(o)->len; i++) if (!strdata(strV(o))[i]) goto strictnum;
@@ -294,9 +293,7 @@ LJLIB_ASM(tonumber)		LJLIB_REC(.)
     }
 #endif
   } else {
-#if !LJ_51
 strictnum:;
-#endif
     GCstr *str = lj_lib_checkstr(L, 1);
     const char *p = strdata(str);
     char *ep;

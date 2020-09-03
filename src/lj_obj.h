@@ -489,7 +489,6 @@ typedef struct GCfuncC {
 
 typedef struct GCfuncL {
   GCfuncHeader;
-  GCRef next_ENV, prev_ENV; /* Chain of closures we share _ENV with */
   GCRef uvptr[1];	/* Array of _pointers_ to upvalue objects (GCupval). */
 } GCfuncL;
 
@@ -572,7 +571,7 @@ enum {
 #define MMDEF_FFI(_)
 #endif
 
-#if LJ_51 && !LJ_HASFFI
+#if !LJ_HASFFI
 #define MMDEF_PAIRS(_)
 #define MMDEF_PAIRS(_)
 #define MM_pairs        255
@@ -961,7 +960,7 @@ static LJ_AINLINE void setgcV(lua_State *L, TValue *o, GCobj *v, uint32_t it)
 }
 
 #define setuservalue(L,u,o) \
-  { setgcref((u)->env, gcV(o)); (u)->envtt = ~itype(o); tvchecklive(L, (o)); }
+  { setgcref((u)->env, gcV(o)); (u)->envtt = ~itype(o); checklivetv(L, o, "store to dead GC object"); }
 
 #define getuservalue(L,u,o) \
   setgcV(L, (o), gcref((u)->env), ~(u)->envtt)
@@ -979,6 +978,8 @@ define_setV(setfuncV, GCfunc, LJ_TFUNC)
 define_setV(setcdataV, GCcdata, LJ_TCDATA)
 define_setV(settabV, GCtab, LJ_TTAB)
 define_setV(setudataV, GCudata, LJ_TUDATA)
+
+#define settabref(L, o, ref) { if (gcrefu(ref)) settabV(L, o, tabref(ref)); else setnilV(o); }
 
 #define setnumV(o, x)		((o)->n = (x))
 #define setnanV(o)		((o)->u64 = U64x(fff80000,00000000))

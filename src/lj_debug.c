@@ -266,9 +266,6 @@ restart:
       case BC_MOV:
 	if (ra == slot) { slot = bc_d(ins); goto restart; }
 	break;
-      case BC_GGET:
-	*name = strdata(gco2str(proto_kgc(pt, ~(ptrdiff_t)bc_d(ins))));
-	return "global";
       case BC_TGETS:
 	*name = strdata(gco2str(proto_kgc(pt, ~(ptrdiff_t)bc_c(ins))));
 	if (ip > proto_bc(pt)) {

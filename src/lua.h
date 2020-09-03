@@ -12,31 +12,10 @@
 #include <stdarg.h>
 #include <stddef.h>
 
-
-#include "luaconf.h"
-
-
 #define LUA_VERSION_LJX         1
 #define LUA_VERSION_MAJOR       "5"
 
-#if LJ_51
-#define LUA_VERSION_MINOR       "1"
-#define LUA_VERSION_NUM         501
-#elif LJ_53
-#define LUA_VERSION_MINOR       "3"
-#define LUA_VERSION_NUM         503
-#else
-#define LUA_VERSION_MINOR       "2"
-#define LUA_VERSION_NUM         502
-#endif
-
-#if LJ_ABIVER==53
-#define LUA_ABIVER_STRING       "5.3"
-#elif LJ_ABIVER==52
-#define LUA_ABIVER_STRING       "5.2"
-#else
-#define LUA_ABIVER_STRING       "5.1"
-#endif
+#include "luaconf.h"
 
 #define LUA_VERSION     "Lua " LUA_VERSION_MAJOR "." LUA_VERSION_MINOR
 #define LUA_RELEASE     LUA_VERSION "." LUA_VERSION_RELEASE
@@ -56,24 +35,17 @@
 #define RIO_LUAI_MAXSTACK		15000
 
 /*
-** XABI: pseudo-indices
-** Those are carefuly laid out depending on ABI. Note that all indice
-** types are supported (ie you can use 5.1 indices with 5.3 ABI), but
-** then it will be only source compatible.
+** Those are carefuly laid out to satisfy all versions of abi.
 */
-#if LJ_ABIVER == 51
-#define LUAI_FIRSTPSEUDOIDX	(-10000)
-#define LUA_REGISTRYINDEX	(LUAI_FIRSTPSEUDOIDX)
-#define LUA_ENVIRONINDEX	(LUAI_FIRSTPSEUDOIDX-1)
-#define LUA_GLOBALSINDEX	(LUAI_FIRSTPSEUDOIDX-2)
-#define LUA_UVINDEX             LUA_GLOBALSINDEX
-#else /* 5.2 and 5.3 */
+#define LUA51_REGISTRYINDEX	(-10000)
+#define LUA_ENVIRONINDEX	(-10001)
+#define LUA_GLOBALSINDEX	(-10002)
+#define LUA51_UVINDEX             LUA_GLOBALSINDEX
+
 #define LUAI_FIRSTPSEUDOIDX	(-RIO_LUAI_MAXSTACK - 1000)
 #define LUA_REGISTRYINDEX       (LUAI_FIRSTPSEUDOIDX)
-#define LUA_ENVIRONINDEX        (LUAI_FIRSTPSEUDOIDX+1)
-#define LUA_GLOBALSINDEX        (LUAI_FIRSTPSEUDOIDX+2)
 #define LUA_UVINDEX             LUA_REGISTRYINDEX
-#endif
+
 #define lua_upvalueindex(i)	(LUA_UVINDEX-(i))
 
 /* 5.2/3: predefined values in the registry */
@@ -81,7 +53,19 @@
 #define LUA_RIDX_GLOBALS	2
 #define LUA_RIDX_LAST		LUA_RIDX_GLOBALS
 #define LUA_RIDX_USERVAL        3 /* For lua_setuservalue(). */
+#define LUA_RIDX_IUSERVAL       4 /* For lua_setiuservalue(). */
 #define LUA_RIDX_COUNT          LUA_RIDX_USERVAL
+
+/* type of numbers in Lua */
+typedef LUA_NUMBER lua_Number;
+
+/* type for integer functions */
+typedef LUA_INTEGER lua_Integer;
+typedef LUA_UNSIGNED lua_Unsigned;
+
+/* type for continuation-function contexts */
+typedef LUA_KCONTEXT lua_KContext;
+
 
 /* thread status */
 #define LUA_OK		0
@@ -89,19 +73,12 @@
 #define LUA_ERRRUN	2
 #define LUA_ERRSYNTAX	3
 #define LUA_ERRMEM	4
-/* XABI */
-#if LJ_ABIVER == 51
-#define LUA_ERRERR	5
-#else
-#define LUA_ERRGCMM	5
+#define LUA_ERRGCMM	5 /* ABI mishap, but usually not critical */
 #define LUA_ERRERR	6
-#endif
-
 
 typedef struct lua_State lua_State;
 
 typedef int (*lua_CFunction) (lua_State *L);
-typedef LUA_KCONTEXT lua_KContext;
 typedef int (*lua_KFunction) (lua_State *L, int status, lua_KContext ctx);
 
 
@@ -146,17 +123,7 @@ typedef void * (*lua_Alloc) (void *ud, void *ptr, size_t osize, size_t nsize);
 #if defined(LUA_USER_H)
 #include LUA_USER_H
 #endif
-
-
-/* type of numbers in Lua */
-typedef LUA_NUMBER lua_Number;
-
-
-/* type for integer functions */
-typedef LUA_INTEGER lua_Integer;
-typedef LUA_UNSIGNED lua_Unsigned;
-
-
+extern const char lua_ident[];
 
 /*
 ** state manipulation
@@ -164,8 +131,10 @@ typedef LUA_UNSIGNED lua_Unsigned;
 LUA_API lua_State *(lua_newstate) (lua_Alloc f, void *ud);
 LUA_API void       (lua_close) (lua_State *L);
 LUA_API lua_State *(lua_newthread) (lua_State *L);
+LUA_API int        (lua_resetthread) (lua_State *L);
 
 LUA_API lua_CFunction (lua_atpanic) (lua_State *L, lua_CFunction panicf);
+LUA_API const lua_Number *(lua_version) (lua_State *L);
 
 
 /*
@@ -197,14 +166,33 @@ LUA_API int             (lua_isuserdata) (lua_State *L, int idx);
 LUA_API int             (lua_type) (lua_State *L, int idx);
 LUA_API const char     *(lua_typename) (lua_State *L, int tp);
 
+LUA_API lua_Number      (lua_tonumberx) (lua_State *L, int idx, int *succ);
+#ifndef lj_api_c
+LUA_API lua_Number      (lua_tonumber) (lua_State *L, int idx);
+LUA_API lua_Integer     (lua_tointeger) (lua_State *L, int idx);
+LUA_API lua_Integer     (lua_tointegerx) (lua_State *L, int idx, int *succ);
+LUA_API lua_Unsigned    (lua_tounsigned) (lua_State *L, int idx);
+LUA_API lua_Unsigned    (lua_tounsignedx) (lua_State *L, int idx, int *succ);
+#endif
+
+LUA_API int             (lua_toboolean) (lua_State *L, int idx);
+LUA_API const char     *(lua_tolstring) (lua_State *L, int idx, size_t *len);
+LUA_API size_t          (lua_objlen) (lua_State *L, int idx);
+LUA_API size_t          (lua_rawlen) (lua_State *L, int idx);
+LUA_API lua_CFunction   (lua_tocfunction) (lua_State *L, int idx);
+LUA_API void	       *(lua_touserdata) (lua_State *L, int idx);
+LUA_API lua_State      *(lua_tothread) (lua_State *L, int idx);
+LUA_API const void     *(lua_topointer) (lua_State *L, int idx);
+
+
 /*
-** Comparison and arithmetic functions
+** Comparison and arithmetic functions, not ABI portable except +-*
 */
 #define LUA_OPADD       0
 #define LUA_OPSUB       1
 #define LUA_OPMUL       2
 
-#if LJ_ABIVER==53
+#if LJ_ABIVER>52
 #define LUA_OPMOD       3
 #define LUA_OPPOW       4
 #define LUA_OPDIV       5
@@ -240,24 +228,6 @@ LUA_API int            (lua_equal) (lua_State *L, int idx1, int idx2);
 LUA_API int            (lua_rawequal) (lua_State *L, int idx1, int idx2);
 LUA_API int            (lua_compare) (lua_State *L, int index1, int index2, int op);
 LUA_API int            (lua_lessthan) (lua_State *L, int idx1, int idx2);
-
-LUA_API lua_Number      (lua_tonumber) (lua_State *L, int idx);
-LUA_API lua_Number      (lua_tonumberx) (lua_State *L, int idx, int *succ);
-LUA_API lua_Integer     (lua_tointeger) (lua_State *L, int idx);
-LUA_API lua_Integer     (lua_tointegerx) (lua_State *L, int idx, int *succ);
-LUA_API lua_Unsigned    (lua_tounsigned) (lua_State *L, int idx);
-LUA_API lua_Unsigned    (lua_tounsignedx) (lua_State *L, int idx, int *succ);
-
-LUA_API int             (lua_toboolean) (lua_State *L, int idx);
-LUA_API const char     *(lua_tolstring) (lua_State *L, int idx, size_t *len);
-LUA_API void         (lua_len) (lua_State *L, int i);
-LUA_API size_t          (lua_objlen) (lua_State *L, int idx);
-LUA_API size_t          (lua_rawlen) (lua_State *L, int idx);
-LUA_API lua_CFunction   (lua_tocfunction) (lua_State *L, int idx);
-LUA_API void	       *(lua_touserdata) (lua_State *L, int idx);
-LUA_API lua_State      *(lua_tothread) (lua_State *L, int idx);
-LUA_API const void     *(lua_topointer) (lua_State *L, int idx);
-LUA_API const lua_Number *(lua_version) (lua_State *L);
 
 
 /*
@@ -295,6 +265,8 @@ LUA_API void *(lua_newuserdata) (lua_State *L, size_t sz);
 LUA_API int   (lua_getmetatable) (lua_State *L, int objindex);
 LUA_API void  (lua_getfenv) (lua_State *L, int idx);
 LUA_API int   (lua_getuservalue) (lua_State *L, int idx);
+LUA_API void *(lua_newuserdatauv) (lua_State *L, size_t sz, int nuvalue);
+LUA_API int  (lua_getiuservalue) (lua_State *L, int idx, int n);
 
 
 /*
@@ -308,42 +280,47 @@ LUA_API void  (lua_rawsetp) (lua_State *L, int idx, const void *p);
 LUA_API int   (lua_setmetatable) (lua_State *L, int objindex);
 LUA_API int   (lua_setfenv) (lua_State *L, int idx);
 LUA_API void  (lua_setuservalue) (lua_State *L, int idx);
-#if LJ_ABIVER==51
-/* Some users check for those macros */
-#define lua_setglobal(L,s)	lua_setfield(L, LUA_GLOBALSINDEX, (s))
-#define lua_getglobal(L,s)	lua_getfield(L, LUA_GLOBALSINDEX, (s))
-#else
-LUA_API void (lua_setglobal) (lua_State *L, const char *var);
+#if LJ_ABIVER>=52
 LUA_API int (lua_getglobal) (lua_State *L, const char *var);
+LUA_API void  (lua_setglobal) (lua_State *L, const char *var);
 #endif
+LUA_API int   (lua_setiuservalue) (lua_State *L, int idx, int n);
 
 
 
 /*
 ** `load' and `call' functions (load and run Lua code)
 */
-LUA_API void  (lua_callk) (lua_State *L, int nargs, int nresults,
-		                           lua_KContext ctx, lua_KFunction k);
-LUA_API int   (lua_pcallk) (lua_State *L, int nargs, int nresults, int errfunc,
-		                            lua_KContext ctx, lua_KFunction k);
-LUA_API void  (lua_call) (lua_State *L, int nargs, int nresults);
 LUA_API int   (lua_pcall) (lua_State *L, int nargs, int nresults, int errfunc);
 LUA_API int   (lua_cpcall) (lua_State *L, lua_CFunction func, void *ud);
+LUA_API int   (lua_loadx) (lua_State *L, lua_Reader reader, void *dt,
+		       const char *chunkname, const char *mode);
 LUA_API int   (lua_load) (lua_State *L, lua_Reader reader, void *data,
 		     const char *chunkname
-#if LJ_ABIVER!=51
+#if (LJ_ABIVER>51) || defined(LJ_IMPL)
 		     , const char *mode
 #endif
 		     );
-LUA_API int (lua_dump) (lua_State *L, lua_Writer writer, void *data);
+LUA_API int (lua_dump) (lua_State *L, lua_Writer writer, void *data
+#if (LJ_ABIVER>=53) || defined(LJ_IMPL)
+		     , int strip
+#endif
+);
 
 
 /*
 ** coroutine functions
 */
-LUA_API int  (lua_yieldk)     (lua_State *L, int nresults, lua_KContext ctx,
-                               lua_KFunction k);
+#ifndef lj_api_c
+LUA_API void  (lua_callk) (lua_State *L, int nargs, int nresults, lua_KContext ctx, lua_KFunction k);
+LUA_API int   (lua_pcallk) (lua_State *L, int nargs, int nresults, int errfunc, lua_KContext ctx, lua_KFunction k);
+LUA_API void  (lua_call) (lua_State *L, int nargs, int nresults);
+LUA_API int  (lua_yieldk)     (lua_State *L, int nresults, lua_KContext ctx, lua_KFunction k);
 LUA_API int  (lua_yield) (lua_State *L, int nresults);
+#if LJ_ABIVER>51
+#define lua_yield(L,n)          lua_yieldk(L, (n), 0, NULL)
+#endif
+#endif
 LUA_API int  (lua_resume) (lua_State *L, int narg);
 LUA_API int  (lua_status) (lua_State *L);
 LUA_API int (lua_isyieldable) (lua_State *L);
@@ -378,10 +355,13 @@ LUA_API int   (lua_next) (lua_State *L, int idx);
 
 LUA_API void  (lua_concat) (lua_State *L, int n);
 
+LUA_API void  (lua_len) (lua_State *L, int i);
+
 LUA_API size_t (lua_stringtonumber) (lua_State *L, const char *s);
 LUA_API lua_Alloc (lua_getallocf) (lua_State *L, void **ud);
 LUA_API void lua_setallocf (lua_State *L, lua_Alloc f, void *ud);
 
+LUA_API void  (lua_toclose) (lua_State *L, int idx);
 
 
 /*
@@ -389,6 +369,26 @@ LUA_API void lua_setallocf (lua_State *L, lua_Alloc f, void *ud);
 ** some useful macros
 ** ===============================================================
 */
+#define lua_getextraspace(L)    ((void *)((char *)(L) - LUA_EXTRASPACE))
+
+#ifndef lj_api_c
+#if LJ_ABIVER>=52
+#define lua_tonumber(L,i)       lua_tonumberx(L,i,NULL)
+#define lua_tointeger(L,i)      lua_tointegerx(L,i,NULL)
+#define lua_tounsigned(L,i)     lua_tounsignedx(L,i,NULL)
+#endif
+#if LJ_ABIVER==51
+#define lua_setglobal(L,s)      lua_setfield(L, LUA_GLOBALSINDEX, (s))
+#define lua_getglobal(L,s)      lua_getfield(L, LUA_GLOBALSINDEX, (s))
+#endif
+#if LJ_ABIVER==54
+#define lua_newuserdata(L,s)	lua_newuserdatauv(L,s,1)
+#define lua_getuservalue(L,idx)	lua_getiuservalue(L,idx,1)
+#define lua_setuservalue(L,idx)	lua_setiuservalue(L,idx,1)
+#endif
+#endif
+
+#define lua_register(L,n,f) (lua_pushcfunction(L, (f)), lua_setglobal(L, (n)))
 
 #define lua_pop(L,n)		lua_settop(L, -(n)-1)
 
@@ -480,19 +480,8 @@ LUA_API int lua_sethook (lua_State *L, lua_Hook func, int mask, int count);
 LUA_API lua_Hook lua_gethook (lua_State *L);
 LUA_API int lua_gethookmask (lua_State *L);
 LUA_API int lua_gethookcount (lua_State *L);
-
-/* From Lua 5.2. */
 LUA_API void *lua_upvalueid (lua_State *L, int idx, int n);
 LUA_API void lua_upvaluejoin (lua_State *L, int idx1, int n1, int idx2, int n2);
-LUA_API int lua_loadx (lua_State *L, lua_Reader reader, void *dt,
-		       const char *chunkname, const char *mode);
-LUA_API const lua_Number *lua_version (lua_State *L);
-LUA_API void lua_copy (lua_State *L, int fromidx, int toidx);
-LUA_API lua_Number lua_tonumberx (lua_State *L, int idx, int *isnum);
-LUA_API lua_Integer lua_tointegerx (lua_State *L, int idx, int *isnum);
-
-/* From Lua 5.3. */
-LUA_API int lua_isyieldable (lua_State *L);
 
 
 struct lua_Debug {
@@ -501,14 +490,8 @@ struct lua_Debug {
   const char *namewhat;	/* (n) `global', `local', `field', `method' */
   const char *what;	/* (S) `Lua', `C', `main', `tail' */
   const char *source;	/* (S) */
-#if LJ_ABIVER==51
-  int currentline;	/* (l) */
-  int nups;		/* (u) number of upvalues */
-  int linedefined;	/* (S) */
-  int lastlinedefined;	/* (S) */
-  char short_src[LUA_IDSIZE]; /* (S) */
-  int i_ci;             /* active function */
-#else
+  /* Past this point, the struct is not ABI transferable to < Lua 5.4 */
+  size_t srclen;        /* (S) */
   int currentline;	/* (l) */
   int linedefined;	/* (S) */
   int lastlinedefined;	/* (S) */
@@ -516,10 +499,11 @@ struct lua_Debug {
   unsigned char nparams;/* (u) number of parameters */
   char isvararg;        /* (u) */
   char istailcall;	/* (t) */
+  unsigned short ftransfer;   /* (r) index of first value transferred */
+  unsigned short ntransfer;   /* (r) number of transferred values */
   char short_src[LUA_IDSIZE]; /* (S) */
   /* private part */
-  int i_ci;  /* active function */
-#endif
+  ptrdiff_t i_ci;  /* active function */
 };
 
 /* }====================================================================== */

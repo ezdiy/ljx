@@ -318,6 +318,14 @@ static int lj_cf_package_loadlib(lua_State *L)
   }
 }
 
+static int lj_cf_package_unloadlib(lua_State *L)
+{
+  void **lib = (void **)luaL_checkudata(L, 1, "_LOADLIB");
+  if (*lib) ll_unloadlib(*lib);
+  *lib = NULL;  /* mark library as closed */
+  return 0;
+}
+
 /* ------------------------------------------------------------------------ */
 
 static int readable(const char *filename)
@@ -586,7 +594,7 @@ static int lj_cf_package_module(lua_State *L)
   lua_pushvalue(L, -1);
   setfenv(L);
   dooptions(L, lastarg);
-  return LJ_52;
+  return 1;
 }
 
 static int lj_cf_package_seeall(lua_State *L)
@@ -683,23 +691,21 @@ LUALIB_API int luaopen_package(lua_State *L)
     lj_lib_pushcf(L, package_loaders[i], 1);
     lua_rawseti(L, -2, i+1);
   }
-#if LJ_52
   lua_pushvalue(L, -1);
   lua_setfield(L, -3, "searchers");
-#endif
   lua_setfield(L, -2, "loaders");
   lua_getfield(L, LUA_REGISTRYINDEX, "LUA_NOENV");
   noenv = lua_toboolean(L, -1);
   lua_pop(L, 1);
-  setpath(L, "path", LUA_PATH, LUA_PATH_DEFAULT, noenv);
-  setpath(L, "cpath", LUA_CPATH, LUA_CPATH_DEFAULT, noenv);
+  setpath(L, "path", LUA_PATHVERSION, LUA_PATH, LUA_PATH_DEFAULT, noenv);
+  setpath(L, "cpath", LUA_CPATHVERSION, LUA_CPATH, LUA_CPATH_DEFAULT, noenv);
   lua_pushliteral(L, LUA_PATH_CONFIG);
   lua_setfield(L, -2, "config");
   luaL_findtable(L, LUA_REGISTRYINDEX, "_LOADED", 16);
   lua_setfield(L, -2, "loaded");
   luaL_findtable(L, LUA_REGISTRYINDEX, "_PRELOAD", 4);
   lua_setfield(L, -2, "preload");
-  lua_pushvalue(L, LUA_GLOBALSINDEX);
+  lua_pushglobaltable(L);
   luaL_register(L, NULL, package_global);
   lua_pop(L, 1);
   return 1;

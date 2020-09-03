@@ -824,7 +824,7 @@ static int pmain(lua_State *L)
     if (s->status != LUA_OK) return 0;
   }
 
-  if ((flags & FLAGS_VERSION)) print_version();
+  if ((flags & FLAGS_VERSION)) print_version(L, 0);
 
   s->status = runargs(L, argv, argn);
   if (s->status != LUA_OK) return 0;

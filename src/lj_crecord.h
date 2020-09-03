@@ -38,7 +38,7 @@ LJ_FUNC void LJ_FASTCALL lj_crecord_tonumber(jit_State *J, RecordFFData *rd);
 
 /* Some helpers for external recorders. */
 LJ_FUNC CTypeID LJ_FASTCALL lj_crec_bit64_type(CTState *cts, cTValue *tv);
-LJ_FUNC TRef LJ_FASTCALL lj_crec_ct_tv(jit_State *J, CType *d, TRef dp, TRef sp, cTValue *sval);
+LJ_FUNC TRef lj_crec_ct_tv(jit_State *J, CType *d, TRef dp, TRef sp, cTValue *sval);
 #endif
 
 #endif

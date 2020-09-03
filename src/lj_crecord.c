@@ -600,7 +600,7 @@ static TRef crec_tv_ct(jit_State *J, CType *s, CTypeID sid, TRef sp)
 
 /* -- Convert TValue to C type (store) ------------------------------------ */
 
-TRef LJ_FASTCALL lj_crec_ct_tv(jit_State *J, CType *d, TRef dp, TRef sp, cTValue *sval)
+TRef lj_crec_ct_tv(jit_State *J, CType *d, TRef dp, TRef sp, cTValue *sval)
 {
   CTState *cts = ctype_ctsG(J2G(J));
   CTypeID sid = CTID_P_VOID;
@@ -787,7 +787,7 @@ static void crec_index_bf(jit_State *J, RecordFFData *rd, TRef ptr, CTInfo info)
 			  (info & CTF_BOOL) ? CTID_BOOL :
 			  (info & CTF_UNSIGNED) ? CTID_UINT32 : CTID_INT32);
     int32_t mask = (int32_t)(((1u << bsz)-1) << pos);
-    TRef sp = crec_ct_tv(J, ct, 0, J->base[2], &rd->argv[2]);
+    TRef sp = lj_crec_ct_tv(J, ct, 0, J->base[2], &rd->argv[2]);
     sp = emitir(IRTI(IR_BSHL), sp, lj_ir_kint(J, pos));
     /* Use of the target type avoids forwarding conversions. */
     sp = emitir(IRT(IR_BAND, t), sp, lj_ir_kint(J, mask));

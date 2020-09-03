@@ -17,6 +17,7 @@
 #include "lj_func.h"
 #include "lj_trace.h"
 #include "lj_vm.h"
+#include "lj_tab.h"
 
 /* -- Prototypes ---------------------------------------------------------- */
 
@@ -123,37 +124,43 @@ GCfunc *lj_func_newC(lua_State *L, MSize nelems, GCtab *env)
   return fn;
 }
 
-static GCfunc *func_newL(lua_State *L, GCproto *pt, GCtab *env)
+static GCfunc *func_newL(lua_State *L, GCproto *pt, GCobj *env)
 {
   uint32_t count;
   GCfunc *fn = (GCfunc *)lj_mem_newgco(L, sizeLfunc((MSize)pt->sizeuv));
-  /* Initially points to itself */
-  setgcref(fn->l.prev_ENV, obj2gco(fn));
-  setgcref(fn->l.next_ENV, obj2gco(fn));
   fn->l.gct = ~LJ_TFUNC;
   fn->l.ffid = FF_LUA;
   fn->l.nupvalues = 0;  /* Set to zero until upvalues are initialized. */
   /* NOBARRIER: Really a setgcref. But the GCfunc is new (marked white). */
   setmref(fn->l.pc, proto_bc(pt));
-  setgcref(fn->l.env, obj2gco(env));
+  setgcref(fn->l.env, env);
   /* Saturating 3 bit counter (0..7) for created closures. */
   count = (uint32_t)pt->flags + PROTO_CLCOUNT;
   pt->flags = (uint8_t)(count - ((count >> PROTO_CLC_BITS) & PROTO_CLCOUNT));
   return fn;
 }
 
-static GCfunc *lj_func_newL(lua_State *L, GCproto *pt, GCfuncL *parent);
+static GCfunc *lj_func_newL(lua_State *L, GCproto *pt, GCfunc *parent);
 /* Recursively instantiate closures */
 static inline
-void lj_func_init_closure(lua_State *L, uintptr_t i, GCproto *pttab, GCfuncL *parent, GCupval *uv)
+void lj_func_init_closure(lua_State *L, uintptr_t i, GCproto *pttab, GCfunc *parent, GCupval *uv)
 {
   setfuncV(L, &uv->tv, lj_func_newL(L, &proto_kgc(pttab, (~i))->pt, parent));
 }
 
-/* Create a new Lua function with empty upvalues. */
-GCfunc *lj_func_newL_empty(lua_State *L, GCproto *pt, GCtab *env)
+static GCobj *curr_env(lua_State *L, GCfunc *fn) {
+  GCobj *ret = NULL;
+  if (isluafunc(fn))
+    ret = gcref(fn->l.env);
+  if (!ret)
+    ret = gcref(L->env);
+  return ret;
+}
+
+/* Create a new Lua function with empty upvalues. This is called on the top level chunk. */
+GCfunc *lj_func_newL_empty(lua_State *L, GCproto *pt, cTValue *env)
 {
-  GCfunc *fn = func_newL(L, pt, env);
+  GCfunc *fn = func_newL(L, pt, curr_env(L, curr_func(L)));
   MSize i, nuv = pt->sizeuv;
   for (i = 0; i < nuv; i++) {
     GCupval *uv = func_emptyuv(L);
@@ -165,34 +172,30 @@ GCfunc *lj_func_newL_empty(lua_State *L, GCproto *pt, GCtab *env)
     }
     uv->flags = flags;
     uv->dhash = (uint32_t)(uintptr_t)pt ^ ((uint32_t)proto_uv(pt)[i] << 24);
-    /* NOBARRIER: The GCfunc is new (marked white). */
     setgcref(fn->l.uvptr[i], obj2gco(uv));
-    /* TBD: sub-closures and env barriers? */
+    lj_gc_objbarrier(L, fn, uv);
     if (flags == UV_ENV) {
-      settabV(L, &uv->tv, env);
+      copyTV(L, &uv->tv, env);
     } else if (flags == UV_CLOSURE)
-      lj_func_init_closure(L, v & PROTO_UV_MASK, pt, &fn->l, uv);
+      lj_func_init_closure(L, v & PROTO_UV_MASK, pt, fn, uv);
   }
   fn->l.nupvalues = (uint8_t)nuv;
   return fn;
 }
 
-/* Do a GC check and create a new Lua function with inherited upvalues. */
-static GCfunc *lj_func_newL(lua_State *L, GCproto *pt, GCfuncL *parent)
+/* Do a GC check and create a new Lua function with inherited upvalues. This is called for lambdas below top level. */
+static GCfunc *lj_func_newL(lua_State *L, GCproto *pt, GCfunc *parent)
 {
   GCfunc *fn;
   GCRef *puv;
   MSize i, nuv;
   TValue *base;
-
-  fn = func_newL(L, pt, tabref(parent->env));
-  /* NOBARRIER: The GCfunc is new (marked white). */
-  puv = parent->uvptr;
+  fn = func_newL(L, pt, curr_env(L, parent));
+  puv = parent->l.uvptr;
   nuv = pt->sizeuv;
   base = L->base;
 
   fn->l.nupvalues = 0;
-  /* TBD: sub-closures and env barriers? */
   for (i = 0; i < nuv; i++) {
     uint32_t v = proto_uv(pt)[i];
     GCupval *uv;
@@ -201,54 +204,82 @@ static GCfunc *lj_func_newL(lua_State *L, GCproto *pt, GCfuncL *parent)
         uv = func_emptyuv(L);
         uv->flags = v >> PROTO_UV_SHIFT;
         setgcref(fn->l.uvptr[i], obj2gco(uv));
-        lj_func_init_closure(L, v & PROTO_UV_MASK, pt, &fn->l, uv);
+        lj_gc_objbarrier(L, fn, uv);
+        lj_func_init_closure(L, v & PROTO_UV_MASK, pt, fn, uv);
         break;
       case UV_ENV:
-        //lua_assert(0);
       case UV_CHAINED:
         uv = &gcref(puv[v & PROTO_UV_MASK])->uv;
-        lua_assert(uv);
-        if (uv->flags & UV_ENV) {
-          setgcref(fn->l.next_ENV, obj2gco(parent));
-          fn->l.prev_ENV = parent->prev_ENV;
-          setgcref(gcref(fn->l.prev_ENV)->fn.l.next_ENV, obj2gco(fn));
-          setgcref(parent->prev_ENV, obj2gco(fn));
-        }
         setgcref(fn->l.uvptr[i], obj2gco(uv));
+        lj_gc_objbarrier(L, fn, uv);
         break;
       case UV_IMMUTABLE:
       case UV_LOCAL:
         uv = func_finduv(L, base + (v & 0xff));
         uv->flags = v >> PROTO_UV_SHIFT;
-        uv->dhash = (uint32_t)(uintptr_t)mref(parent->pc, char) ^ (v << 24);
+        uv->dhash = (uint32_t)(uintptr_t)mref(parent->l.pc, char) ^ (v << 24);
         setgcref(fn->l.uvptr[i], obj2gco(uv));
+        lj_gc_objbarrier(L, fn, uv);
         break;
       case UV_HOLE:
         setgcrefnull(fn->l.uvptr[i]);
         continue;
       default:
-        lua_assert(0);
+        lj_assertL(0, "invalid uvproto flags");
     }
   }
   fn->l.nupvalues = (uint8_t)nuv;
   return fn;
 }
+
+void ljx_func_setfenv(lua_State *L, GCfunc *fn, GCtab *t)
+{
+  if (isluafunc(fn)) {
+    GCupval *uv = func_emptyuv(L);
+    settabV(L, &uv->tv, t);
+    lj_gc_objbarrier(L, uv, t);
+    int nup = fn->l.nupvalues;
+    for (int i = 0; i < nup; i++) {
+      GCupval *uvo = gco2uv(gcref(fn->l.uvptr[i]));
+      if (uvo->flags == UV_CLOSURE) {
+        GCfunc *subfn = gco2func(obj2gco(uvval(uvo)));
+        setgcref(subfn->l.env, obj2gco(t));
+        lj_gc_objbarrier(L, fn, t);
+      }
+    }
+    setgcref(fn->l.env, obj2gco(t));
+  } else setgcref(fn->c.env, obj2gco(t));
+  lj_gc_objbarrier(L, fn, t);
+}
   
 GCfunc *lj_func_newL_gc(lua_State *L, GCproto *pt, GCfuncL *parent)
 {
   lj_gc_check_fixtop(L);
-  return lj_func_newL(L, pt, parent);
+  return lj_func_newL(L, pt, (GCfunc*)parent);
+}
+
+cTValue * LJ_FASTCALL lj_curr_env(lua_State *L, int searchuv)
+{
+  GCfunc *fn = curr_func(L);
+  GCobj *gco = curr_env(L, fn);
+  if (gco) {
+    TValue *o = &G(L)->tmptv;
+    settabV(L, o, gco2tab(gco));
+    return o;
+  } else if (searchuv && isluafunc(fn)) {
+    for (int i = 0; i < fn->l.nupvalues; i++) {
+      GCupval *uvo = gco2uv(gcref(fn->l.uvptr[i]));
+      if (uvo->flags == UV_ENV)
+        return uvval(uvo);
+    }
+  }
+  return lj_tab_getint(tabV(registry(L)), LUA_RIDX_GLOBALS);
 }
 
 void LJ_FASTCALL lj_func_free(global_State *g, GCfunc *fn)
 {
   MSize size = isluafunc(fn) ? sizeLfunc((MSize)fn->l.nupvalues) :
 			       sizeCfunc((MSize)fn->c.nupvalues);
-  /* NOBARRIER: Should be handled in ESETV/lua_setupvalue. */
-  if (isluafunc(fn)) {
-    setgcrefr(gcref(fn->l.next_ENV)->fn.l.prev_ENV, fn->l.prev_ENV);
-    setgcrefr(gcref(fn->l.prev_ENV)->fn.l.next_ENV, fn->l.next_ENV);
-  }
   lj_mem_free(g, fn, size);
 }
 

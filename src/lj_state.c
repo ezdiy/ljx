@@ -30,6 +30,7 @@
 #include "lj_alloc.h"
 #include "luajit.h"
 
+const char lua_ident[] = LJ_LJX_VERSION;
 /* -- Stack handling ------------------------------------------------------ */
 
 /* Stack sizes. */
@@ -148,7 +149,7 @@ static TValue *cpluaopen(lua_State *L, lua_CFunction dummy, void *ud)
   UNUSED(dummy);
   UNUSED(ud);
   stack_init(L, L);
-  lua_assert(L->cframe);
+  lj_assertL(L->cframe);
   g->cframe_limit = (char*)L->cframe - LUAI_MAXCFRAME;
   /* NOBARRIER: State initialization, all objects are white. */
   lj_str_init(L);
@@ -175,6 +176,11 @@ static TValue *cpluaopen(lua_State *L, lua_CFunction dummy, void *ud)
   t = lj_tab_new(L, 0, 0);
   setgcref(t->metatable, obj2gco(weak));
   settabV(L, lj_tab_setint(L, reg, LUA_RIDX_USERVAL), t);
+
+  /* Indexed userval table. */
+  t = lj_tab_new(L, 0, 0);
+  setgcref(t->metatable, obj2gco(weak));
+  settabV(L, lj_tab_setint(L, reg, LUA_RIDX_IUSERVAL), t);
 
   /* Register main thread. */  
   setthreadV(L, lj_tab_setint(L, reg, LUA_RIDX_MAINTHREAD), L);

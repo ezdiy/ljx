@@ -168,7 +168,6 @@ LJLIB_CF(bit_tohex)		LJLIB_REC(.)
   return 1;
 }
 
-#if !LJ_51
 #if !defined(LUA_NBITS)
 #define LUA_NBITS	32
 #endif
@@ -206,21 +205,18 @@ LJLIB_CF(bit_replace) {
   lua_pushunsigned(L, r);
   return 1;
 }
-#endif
 
 /* ------------------------------------------------------------------------ */
 
 #include "lj_libdef.h"
 LUALIB_API int luaopen_bit32(lua_State *L)
 {
-#if !LJ_51
   LJ_LIB_REG(L, LUA_BIT32LIBNAME, bit);
 #define RENAME(x,y) lua_getfield(L, -1, #x); lua_setfield(L, -2, #y);
   RENAME(rol,lrotate);
   RENAME(ror,rrotate);
 #undef RENAME
   return 1;
-#endif
 }
 
 LUALIB_API int luaopen_bit(lua_State *L)

@@ -156,8 +156,6 @@
   /* Table ops. */ \
   _(TNEW,	dst,	___,	lit,	gc) \
   _(TDUP,	dst,	___,	tab,	gc) \
-  _(GGET,	dst,	___,	str,	index) \
-  _(GSET,	var,	___,	str,	newindex) \
   _(TGETV,	dst,	var,	var,	index) \
   _(TGETS,	dst,	var,	str,	index) \
   _(TGETB,	dst,	var,	lit,	index) \
@@ -200,7 +198,6 @@
   _(ILOOP,	rbase,	___,	jump,	___) \
   _(JLOOP,	rbase,	___,	lit,	___) \
   \
-  _(ESETV,	uv,	___,	var,	___) \
   _(USETV,	uv,	___,	var,	___) \
   \
   /* Function headers. I/J = interp/JIT, F/V/C = fixarg/vararg/C func. */ \

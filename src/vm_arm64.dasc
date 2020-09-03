@@ -1,6 +1,8 @@
 |// Low-level VM code for ARM64 CPUs.
 |// Bytecode interpreter, fast functions and helper functions.
 |// Copyright (C) 2005-2020 Mike Pall. See Copyright Notice in luajit.h
+|//
+|// Lua 5.3 port by ez, 2020.
 |
 |.arch arm64
 |.section code_op, code_sub
@@ -638,10 +640,10 @@ static void build_subroutines(BuildCtx *ctx)
   |  ins_next
   |
   |3:  // Call __index metamethod.
-  |  // BASE = base, L->top = new base, stack = cont/func/t/k
+  |  // BASE = base, L->top = new base, stack = cont/func/t/k/origt
   |   sub TMP1, BASE, #FRAME_CONT
   |  ldr BASE, L->top
-  |    mov NARGS8:RC, #16		// 2 args for func(t, k).
+  |    mov NARGS8:RC, #24		// LJX: 3 args for func(t, k, origt).
   |  ldr LFUNC:CARG3, [BASE, FRAME_FUNC]  // Guaranteed to be a function here.
   |    str PC, [BASE, #-24]		// [cont|PC]
   |   sub PC, BASE, TMP1
@@ -835,21 +837,15 @@ static void build_subroutines(BuildCtx *ctx)
   |
   |->vmeta_len:
   |  add CARG2, BASE, RC, lsl #3
-#if LJ_52
   |  mov TAB:RC, TAB:CARG1		// Save table (ignored for other types).
-#endif
   |   str BASE, L->base
   |  mov CARG1, L
   |   str PC, SAVE_PC
   |  bl extern lj_meta_len		// (lua_State *L, TValue *o)
   |  // Returns NULL (retry) or TValue * (metamethod base).
-#if LJ_52
   |  cbnz CRET1, ->vmeta_binop		// Binop call for compatibility.
   |  mov TAB:CARG1, TAB:RC
   |  b ->BC_LEN_Z
-#else
-  |  b ->vmeta_binop			// Binop call for compatibility.
-#endif
   |
   |//-- Call metamethod ----------------------------------------------------
   |
@@ -1033,6 +1029,10 @@ static void build_subroutines(BuildCtx *ctx)
   |    and TAB:CARG2, CARG2, #LJ_GCVMASK
   |  ccmp TAB:TMP0, #0, #0, eq
   |  bne ->fff_fallback
+  |  // LJX: fallback if metatable contains __gc. TODO: Reschedule?
+  |  ldrb TMP0w, TAB:CARG2->nomm
+  |  tbz TMP0w, #MM_gc, ->fff_fallback
+  |  // LJX: end
   |    str TAB:CARG2, TAB:TMP1->metatable
   |   tbz TMP2w, #2, ->fff_restv	// isblack(table)
   |  barrierback TAB:TMP1, TMP2w, TMP0
@@ -1104,14 +1104,10 @@ static void build_subroutines(BuildCtx *ctx)
   |
   |.ffunc_1 pairs
   |  checktp TMP1, CARG1, LJ_TTAB, ->fff_fallback
-#if LJ_52
   |  ldr TAB:CARG2, TAB:TMP1->metatable
-#endif
   |   ldr CFUNC:CARG4, CFUNC:CARG3->upvalue[0]
   |    ldr PC, [BASE, FRAME_PC]
-#if LJ_52
   |  cbnz TAB:CARG2, ->fff_fallback
-#endif
   |  mov RC, #(3+1)*8
   |  stp CARG1, TISNIL, [BASE, #-8]
   |   str CFUNC:CARG4, [BASE, #-16]
@@ -1147,14 +1143,10 @@ static void build_subroutines(BuildCtx *ctx)
   |
   |.ffunc_1 ipairs
   |  checktp TMP1, CARG1, LJ_TTAB, ->fff_fallback
-#if LJ_52
   |  ldr TAB:CARG2, TAB:TMP1->metatable
-#endif
   |   ldr CFUNC:CARG4, CFUNC:CARG3->upvalue[0]
   |    ldr PC, [BASE, FRAME_PC]
-#if LJ_52
   |  cbnz TAB:CARG2, ->fff_fallback
-#endif
   |  mov RC, #(3+1)*8
   |  stp CARG1, TISNUM, [BASE, #-8]
   |   str CFUNC:CARG4, [BASE, #-16]
@@ -2496,26 +2488,36 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |2:
     |  cmn ITYPE, #-LJ_TTAB
     |  bne ->vmeta_len
-#if LJ_52
     |  ldr TAB:CARG2, TAB:CARG1->metatable
     |  cbnz TAB:CARG2, >9
     |3:
-#endif
     |->BC_LEN_Z:
     |  bl extern lj_tab_len		// (GCtab *t)
     |  // Returns uint32_t (but less than 2^31).
     |  b <1
     |
-#if LJ_52
     |9:
     |  ldrb TMP1w, TAB:CARG2->nomm
     |  tbnz TMP1w, #MM_len, <3		// 'no __len' flag set: done.
     |  b ->vmeta_len
-#endif
+    break;
+
+#if LJ_53
+  case BC_BNOT:
+    |  b ->vmeta_unm
     break;
 
   /* -- Binary ops -------------------------------------------------------- */
+  case BC_IDIV: // LJX: Binary ops all bail to arith_vv and ultimately lj_meta_arith
+  case BC_BAND:
+  case BC_BOR:
+  case BC_BXOR:
+  case BC_SHL:
+  case BC_SHR:
+    |  b ->vmeta_arith_vv
+    break;
 
+#endif
     |.macro ins_arithcheck_int, target
     |  checkint CARG1, target
     |  checkint CARG2, target
@@ -2879,22 +2881,6 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  bl extern lj_gc_step_fixtop  // (lua_State *L)
     |  mov CARG1, L
     |  b <1
-    break;
-
-  case BC_GGET:
-    |  // RA = dst, RC = str_const (~)
-  case BC_GSET:
-    |  // RA = dst, RC = str_const (~)
-    |  ldr LFUNC:CARG1, [BASE, FRAME_FUNC]
-    |   mvn RC, RC
-    |  and LFUNC:CARG1, CARG1, #LJ_GCVMASK
-    |  ldr TAB:CARG2, LFUNC:CARG1->env
-    |   ldr STR:RC, [KBASE, RC, lsl #3]
-    if (op == BC_GGET) {
-      |  b ->BC_TGETS_Z
-    } else {
-      |  b ->BC_TSETS_Z
-    }
     break;
 
   case BC_TGETV:

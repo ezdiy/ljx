@@ -2,6 +2,8 @@
 |// Bytecode interpreter, fast functions and helper functions.
 |// Copyright (C) 2005-2020 Mike Pall. See Copyright Notice in luajit.h
 |
+|// Lua 5.3 port by ez, 2020.
+|
 |.arch x64
 |.section code_op, code_sub
 |
@@ -739,12 +741,7 @@ static void build_subroutines(BuildCtx *ctx)
   |  settp STR:RC, LJ_TSTR		// STR:RC = GCstr *
   |  mov TMP1, STR:RC
   |  lea RC, TMP1
-  |  cmp PC_OP, BC_GGET
-  |  jne >1
-  |  settp TAB:RA, TAB:RB, LJ_TTAB	// TAB:RB = GCtab *
-  |  lea RB, [DISPATCH+DISPATCH_GL(tmptv)]  // Store fn->l.env in g->tmptv.
-  |  mov [RB], TAB:RA
-  |  jmp >2
+  |  jmp >1
   |
   |->vmeta_tgetb:
   |  movzx RCd, PC_RC
@@ -783,13 +780,13 @@ static void build_subroutines(BuildCtx *ctx)
   |  ins_next
   |
   |3:  // Call __index metamethod.
-  |  // BASE = base, L->top = new base, stack = cont/func/t/k
+  |  // BASE = base, L->top = new base, stack = cont/func/t/k/origt
   |  mov RA, L:RB->top
   |  mov [RA-24], PC			// [cont|PC]
   |  lea PC, [RA+FRAME_CONT]
   |  sub PC, BASE
   |  mov LFUNC:RB, [RA-16]		// Guaranteed to be a function here.
-  |  mov NARGS:RDd, 2+1			// 2 args for func(t, k).
+  |  mov NARGS:RDd, 3+1			// LJX: 2 args for func(t, k, origt).
   |  cleartp LFUNC:RB
   |  jmp ->vm_call_dispatch_f
   |
@@ -812,12 +809,7 @@ static void build_subroutines(BuildCtx *ctx)
   |  settp STR:RC, LJ_TSTR		// STR:RC = GCstr *
   |  mov TMP1, STR:RC
   |  lea RC, TMP1
-  |  cmp PC_OP, BC_GSET
-  |  jne >1
-  |  settp TAB:RA, TAB:RB, LJ_TTAB	// TAB:RB = GCtab *
-  |  lea RB, [DISPATCH+DISPATCH_GL(tmptv)]  // Store fn->l.env in g->tmptv.
-  |  mov [RB], TAB:RA
-  |  jmp >2
+  |  jmp >1
   |
   |->vmeta_tsetb:
   |  movzx RCd, PC_RC
@@ -1067,16 +1059,12 @@ static void build_subroutines(BuildCtx *ctx)
   |  call extern lj_meta_len		// (lua_State *L, TValue *o)
   |  // NULL (retry) or TValue * (metamethod) returned in eax (RC).
   |  mov BASE, L:RB->base
-#if LJ_52
   |  test RC, RC
   |  jne ->vmeta_binop			// Binop call for compatibility.
   |  movzx RDd, PC_RD
   |  mov TAB:CARG1, [BASE+RD*8]
   |  cleartp TAB:CARG1
   |  jmp ->BC_LEN_Z
-#else
-  |  jmp ->vmeta_binop			// Binop call for compatibility.
-#endif
   |
   |//-- Call metamethod ----------------------------------------------------
   |
@@ -1265,6 +1253,8 @@ static void build_subroutines(BuildCtx *ctx)
   |  cmp aword TAB:RB->metatable, 0; jne ->fff_fallback
   |  mov TAB:RA, [BASE+8]
   |  checktab TAB:RA, ->fff_fallback
+  |  // LJX: fallback if metatable contains __gc
+  |  test byte TAB:RA->nomm, 1<<MM_gc; jz ->fff_fallback
   |  mov TAB:RB->metatable, TAB:RA
   |  mov PC, [BASE-8]
   |  mov [BASE-16], TAB:TMPR			// Return original table.
@@ -1389,9 +1379,7 @@ static void build_subroutines(BuildCtx *ctx)
   |  mov TAB:RB, [BASE]
   |  mov TMPR, TAB:RB
   |  checktab TAB:RB, ->fff_fallback
-#if LJ_52
   |  cmp aword TAB:RB->metatable, 0; jne ->fff_fallback
-#endif
   |  mov CFUNC:RD, [BASE-16]
   |  cleartp CFUNC:RD
   |  mov CFUNC:RD, CFUNC:RD->upvalue[0]
@@ -1458,9 +1446,7 @@ static void build_subroutines(BuildCtx *ctx)
   |  mov TAB:RB, [BASE]
   |  mov TMPR, TAB:RB
   |  checktab TAB:RB, ->fff_fallback
-#if LJ_52
   |  cmp aword TAB:RB->metatable, 0; jne ->fff_fallback
-#endif
   |  mov CFUNC:RD, [BASE-16]
   |  cleartp CFUNC:RD
   |  mov CFUNC:RD, CFUNC:RD->upvalue[0]
@@ -3184,12 +3170,10 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |2:
     |  cmp ITYPEd, LJ_TTAB; jne ->vmeta_len
     |  mov TAB:CARG1, TAB:RD
-#if LJ_52
     |  mov TAB:RB, TAB:RD->metatable
     |  cmp TAB:RB, 0
     |  jnz >9
     |3:
-#endif
     |->BC_LEN_Z:
     |  mov RB, BASE			// Save BASE.
     |  call extern lj_tab_len		// (GCtab *t)
@@ -3202,16 +3186,29 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  mov BASE, RB			// Restore BASE.
     |  movzx RAd, PC_RA
     |  jmp <1
-#if LJ_52
     |9:  // Check for __len.
     |  test byte TAB:RB->nomm, 1<<MM_len
     |  jnz <3
     |  jmp ->vmeta_len			// 'no __len' flag NOT set: check.
-#endif
+    break;
+
+#if LJ_53
+  case BC_BNOT:
+    |  ins_AD	// RA = dst, RD = src
+    |  jmp ->vmeta_unm
     break;
 
   /* -- Binary ops -------------------------------------------------------- */
-
+  case BC_IDIV: // LJX: Binary ops all bail to arith_vv and ultimately lj_meta_arith
+  case BC_BAND:
+  case BC_BOR:
+  case BC_BXOR:
+  case BC_SHL:
+  case BC_SHR:
+    |  ins_ABC
+    |  jmp ->vmeta_arith_vv
+    break;
+#endif
     |.macro ins_arithpre, sseins, ssereg
     |  ins_ABC
     ||vk = ((int)op - BC_ADDVN) / (BC_ADDNV-BC_ADDVN);
@@ -3602,23 +3599,6 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  movzx RDd, PC_RD			// Need to reload RD.
     |  not RD
     |  jmp <2
-    break;
-
-  case BC_GGET:
-    |  ins_AND	// RA = dst, RD = str const (~)
-    |  mov LFUNC:RB, [BASE-16]
-    |  cleartp LFUNC:RB
-    |  mov TAB:RB, LFUNC:RB->env
-    |  mov STR:RC, [KBASE+RD*8]
-    |  jmp ->BC_TGETS_Z
-    break;
-  case BC_GSET:
-    |  ins_AND	// RA = src, RD = str const (~)
-    |  mov LFUNC:RB, [BASE-16]
-    |  cleartp LFUNC:RB
-    |  mov TAB:RB, LFUNC:RB->env
-    |  mov STR:RC, [KBASE+RD*8]
-    |  jmp ->BC_TSETS_Z
     break;
 
   case BC_TGETV:

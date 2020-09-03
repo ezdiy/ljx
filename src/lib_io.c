@@ -102,12 +102,8 @@ static int io_file_close(lua_State *L, IOFileUD *iof)
 #elif LJ_TARGET_WINDOWS && !LJ_TARGET_XBOXONE && !LJ_TARGET_UWP
     stat = _pclose(iof->fp);
 #endif
-#if LJ_51
-    ok = (stat != -1);
-#else
     iof->fp = NULL;
     return luaL_execresult(L, stat);
-#endif
   } else {
     lj_assertL((iof->type & IOFILE_TYPE_MASK) == IOFILE_TYPE_STDF,
 	       "close of unknown FILE* type");
@@ -235,7 +231,7 @@ static int io_file_write(lua_State *L, FILE *fp, int start)
       lj_err_argt(L, (int)(tv - L->base) + 1, LUA_TSTRING);
     status = status && (fwrite(p, 1, len, fp) == len);
   }
-  if (!LJ_51 && status) {
+  if (status) {
     L->top = L->base+1;
     if (start == 0)
       setudataV(L, L->base, IOSTDF_UD(L, GCROOT_IO_OUTPUT));

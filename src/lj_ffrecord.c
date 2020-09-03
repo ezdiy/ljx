@@ -223,7 +223,6 @@ static void LJ_FASTCALL recff_getmetatable(jit_State *J, RecordFFData *rd)
   }  /* else: Interpreter will throw. */
 }
 
-#if !LJ_51
 static void setmetatable_gc_guard(jit_State *J, RecordFFData *rd)
 {
   RecordIndex mix;
@@ -239,7 +238,6 @@ static void setmetatable_gc_guard(jit_State *J, RecordFFData *rd)
   if (!tref_isnil(lj_record_idx(J, &mix)))
     lj_ir_call(J, IRCALL_lj_gc_tab_finalized, J->base[0]);
 }
-#endif
 
 static void LJ_FASTCALL recff_setmetatable(jit_State *J, RecordFFData *rd)
 {
@@ -255,9 +253,7 @@ static void LJ_FASTCALL recff_setmetatable(jit_State *J, RecordFFData *rd)
     mtref = tref_isnil(mt) ? lj_ir_knull(J, IRT_TAB) : mt;
     emitir(IRT(IR_FSTORE, IRT_TAB), fref, mtref);
     if (!tref_isnil(mt)) {
-#if !LJ_51
       setmetatable_gc_guard(J, rd);
-#endif
       emitir(IRT(IR_TBAR, IRT_TAB), tr, 0);
     }
     J->base[0] = tr;
@@ -301,7 +297,6 @@ static void LJ_FASTCALL recff_rawequal(jit_State *J, RecordFFData *rd)
   }  /* else: Interpreter will throw. */
 }
 
-#if !LJ_51
 static void LJ_FASTCALL recff_rawlen(jit_State *J, RecordFFData *rd)
 {
   TRef tr = J->base[0];
@@ -312,7 +307,6 @@ static void LJ_FASTCALL recff_rawlen(jit_State *J, RecordFFData *rd)
   /* else: Interpreter will throw. */
   UNUSED(rd);
 }
-#endif
 
 /* Determine mode of select() call. */
 int32_t lj_ffrecord_select_mode(jit_State *J, TRef tr, TValue *tv)
@@ -462,8 +456,7 @@ static void LJ_FASTCALL recff_ipairs_aux(jit_State *J, RecordFFData *rd)
 static void LJ_FASTCALL recff_xpairs(jit_State *J, RecordFFData *rd)
 {
   TRef tr = J->base[0];
-  if (!(((!LJ_51) || (LJ_HASFFI && tref_iscdata(tr))) &&
-	recff_metacall(J, rd, MM_pairs + rd->data))) {
+  if (!recff_metacall(J, rd, MM_pairs + rd->data)) {
     if (tref_istab(tr)) {
       J->base[0] = lj_ir_kfunc(J, funcV(&J->fn->c.upvalue[0]));
       J->base[1] = tr;
@@ -1207,7 +1200,7 @@ static void LJ_FASTCALL recff_io_write(jit_State *J, RecordFFData *rd)
 	emitir(IRTGI(IR_EQ), tr, len);
     }
   }
-  J->base[0] = LJ_51 ? TREF_TRUE : ud;
+  J->base[0] = ud;
 }
 
 static void LJ_FASTCALL recff_io_flush(jit_State *J, RecordFFData *rd)
@@ -1253,9 +1246,7 @@ static void LJ_FASTCALL recff_debug_setmetatable(jit_State *J, RecordFFData *rd)
     emitir(IRT(IR_FSTORE, IRT_TAB), fref, mtref);
     if (!tref_isnil(mt)) {
       emitir(IRT(IR_TBAR, IRT_TAB), tr, 0);
-#if !LJ_51
       setmetatable_gc_guard(J, rd);
-#endif
     }
     J->base[0] = tr;
     J->needsnap = 1;

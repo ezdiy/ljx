@@ -640,13 +640,7 @@ extern void *LJ_WIN_LOADLIBA(const char *path);
 #endif
 #endif
 
-/* Compatibility with Lua 5.1 vs. 5.2. */
-#ifdef LUAJIT_ENABLE_LUA51COMPAT
-#define LJ_51			1
-#else
-#define LJ_51			0
-#endif
-
+/* Compatibility with Lua 5.3+ */
 /* Enable Lua 5.3 compatibility. */
 #ifdef LUAJIT_ENABLE_LUA53COMPAT
 #define LJ_53			1

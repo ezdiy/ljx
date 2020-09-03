@@ -13,6 +13,34 @@
 #include <stddef.h>
 #include "lj_arch.h"
 
+/* Configure ABI flags */
+#if LJ_51
+#define LUA_VERSION_MINOR       "1"
+#define LUA_VERSION_NUM         501
+#elif LJ_53
+
+// LJ_53 and LJ_54 can be defined at the same time
+#if LJ_54
+#define LUA_VERSION_MINOR       "4"
+#define LUA_VERSION_NUM         504
+#else
+#define LUA_VERSION_MINOR       "3"
+#define LUA_VERSION_NUM         503
+#endif
+
+#else
+#define LUA_VERSION_MINOR       "2"
+#define LUA_VERSION_NUM         502
+#endif
+
+#if LJ_ABIVER==53
+#define LUA_ABIVER_STRING       "5.3"
+#elif LJ_ABIVER==52
+#define LUA_ABIVER_STRING       "5.2"
+#else
+#define LUA_ABIVER_STRING       "5.1"
+#endif
+
 /* Default path for loading Lua and C modules with require(). */
 #if defined(_WIN32)
 /*
@@ -122,22 +150,16 @@
 #define LUA_MAXINPUT	512	/* Max. input line length. */
 #endif
 
-/* Note: changing the following defines breaks the ABI. */
-#if LJ_ABIVER == 53
-#define LUA_INTEGER long long
-#define LUA_UNSIGNED unsigned long long
-#else
+/* Note: these are carefully chosen to keep ABI backwards compatible across versions. */
 #define LUA_INTEGER	ptrdiff_t
+#define LUA_INTEGER64	int64_t
 #define LUA_UNSIGNED    unsigned int
-#endif
+#define LUA_UNSIGNED64  uint64_t
 
+#define LUA_EXTRASPACE		(sizeof(void *))
 #define LUA_IDSIZE	60	/* Size of lua_Debug.short_src. */
-/*
-** Size of lauxlib and io.* on-stack buffers. Weird workaround to avoid using
-** unreasonable amounts of stack space, but still retain ABI compatibility.
-** Blame Lua for depending on BUFSIZ in the ABI, blame **** for wrecking it.
-*/
-#define LUAL_BUFFERSIZE	(BUFSIZ > 16384 ? 8192 : BUFSIZ)
+#define LUAI_MAXALIGN void *s; double u;
+#define LUAL_BUFFERSIZE   ((int)(16 * sizeof(void*) * sizeof(lua_Number)))
 #define LUA_KCONTEXT    ptrdiff_t
 #define lua_str2number(s,p)	strtod((s), (p))
 
