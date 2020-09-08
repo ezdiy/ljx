@@ -62,7 +62,7 @@ static const uint8_t *lib_read_lfunc(lua_State *L, const uint8_t *p, GCtab *tab)
   ls.chunkname = name;
   pt = lj_bcread_proto(&ls);
   pt->firstline = ~(BCLine)0;
-  fn = lj_func_newL_empty(L, pt, tabref(L->env));
+  fn = lj_func_newL_empty(L, pt, NULL);
   /* NOBARRIER: See below for common barrier. */
   setfuncV(L, lj_tab_setstr(L, tab, name), fn);
   return (const uint8_t *)ls.p;

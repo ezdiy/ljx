@@ -160,16 +160,18 @@ static GCobj *curr_env(lua_State *L, GCfunc *fn) {
 /* Create a new Lua function with empty upvalues. This is called on the top level chunk. */
 GCfunc *lj_func_newL_empty(lua_State *L, GCproto *pt, cTValue *env)
 {
+  if (!env)
+    env = lj_tab_getint(tabV(registry(L)), LUA_RIDX_GLOBALS);
   GCfunc *fn = func_newL(L, pt, curr_env(L, curr_func(L)));
   MSize i, nuv = pt->sizeuv;
   for (i = 0; i < nuv; i++) {
     GCupval *uv = func_emptyuv(L);
     uint32_t v = proto_uv(pt)[i];
     uint8_t flags = (v >> PROTO_UV_SHIFT);
-    if (flags == UV_HOLE) {
+/*    if (flags == UV_HOLE) {
       setgcrefnull(fn->l.uvptr[i]);
       continue;
-    }
+    }*/
     uv->flags = flags;
     uv->dhash = (uint32_t)(uintptr_t)pt ^ ((uint32_t)proto_uv(pt)[i] << 24);
     setgcref(fn->l.uvptr[i], obj2gco(uv));
@@ -221,9 +223,9 @@ static GCfunc *lj_func_newL(lua_State *L, GCproto *pt, GCfunc *parent)
         setgcref(fn->l.uvptr[i], obj2gco(uv));
         lj_gc_objbarrier(L, fn, uv);
         break;
-      case UV_HOLE:
+/*      case UV_HOLE:
         setgcrefnull(fn->l.uvptr[i]);
-        continue;
+        continue;*/
       default:
         lj_assertL(0, "invalid uvproto flags");
     }

@@ -436,7 +436,6 @@ LUA_API void  (lua_toclose) (lua_State *L, int idx);
 /* hack */
 LUA_API void lua_setlevel	(lua_State *from, lua_State *to);
 
-
 /*
 ** {======================================================================
 ** Debug API

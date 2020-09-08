@@ -54,10 +54,12 @@ typedef struct VarInfo {
   BCPos endpc;		/* First point where the local variable is dead. */
   uint8_t slot;		/* Variable slot. */
   uint8_t info;		/* Variable/goto/label info. */
+  uint8_t uv;
 } VarInfo;
 
 /* Lua lexer state. */
 typedef struct LexState {
+  struct FuncState *topfs;	/* Current FuncState. Defined in lj_parse.c. */
   struct FuncState *fs;	/* Current FuncState. Defined in lj_parse.c. */
   struct lua_State *L;	/* Lua state. */
   TValue tokval;	/* Current token value. */
@@ -74,6 +76,7 @@ typedef struct LexState {
   BCLine lastline;	/* Line of last token. */
   GCstr *chunkname;	/* Current chunk name (interned string). */
   GCstr *env;           /* Literal "_ENV" (interned string). */
+  uint16_t hasenv;
   const char *chunkarg;	/* Chunk name argument. */
   const char *mode;	/* Allow loading bytecode (b) and/or source text (t). */
   VarInfo *vstack;	/* Stack for names and extents of local variables. */

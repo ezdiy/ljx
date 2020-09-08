@@ -1,6 +1,6 @@
 # Shortcut to enable common debug flags and verbose echo of Makefile steps
 # better just use `make DEBUG=1`
-#DEBUG=1
+DEBUG=1
 VERSION:=$(shell git describe 2> /dev/null || cat ../.version)
 
 ################################################################################
@@ -106,7 +106,7 @@ CCOPT_ppc=
 CCOPT_mips=
 #
 ifneq (,$(DEBUG))
-CCDEBUG= -g -ggdb
+CCDEBUG= -g -ggdb -O0 -Werror
 else
 CCDEBUG=
 endif

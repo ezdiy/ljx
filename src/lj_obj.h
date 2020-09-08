@@ -422,10 +422,10 @@ typedef struct GCproto {
 #define PROTO_CLC_POLY		(3*PROTO_CLCOUNT)  /* Polymorphic threshold. */
 
 /* UV flags in bytecode/proto */
+#define PROTO_UV_LOCAL          0x0000  /* Must be always 0 */
 #define PROTO_UV_CHAINED	0x8000	/* Chained upvalue. */
-#define PROTO_UV_IMMUTABLE	0x4000	/* Immutable upvalue. */
+#define PROTO_UV_IMMUTABLE	0x4000	/* Immutable upvalue (only for locals!). */
 #define PROTO_UV_ENV            0x2000	/* Refers to _ENV. */
-#define PROTO_UV_HOLE           0x6000	/* ENV+RO = hole in uv list. */
 #define PROTO_UV_CLOSURE        0xc000	/* CHAINED+RO = closure */
 #define PROTO_UV_MASK           0x1fff  /* Can have 8k upvalues */
 #define PROTO_UV_SHIFT          13
@@ -435,7 +435,6 @@ typedef struct GCproto {
 #define UV_IMMUTABLE  (PROTO_UV_IMMUTABLE>>PROTO_UV_SHIFT)
 #define UV_ENV        (PROTO_UV_ENV>>PROTO_UV_SHIFT)
 #define UV_CLOSURE    (PROTO_UV_CLOSURE>>PROTO_UV_SHIFT)
-#define UV_HOLE       (PROTO_UV_HOLE>>PROTO_UV_SHIFT)
 #define UV_LOCAL      0                 /* Always. */
 
 #define proto_kgc(pt, idx) \

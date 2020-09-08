@@ -39,7 +39,7 @@ static TValue *cpparser(lua_State *L, lua_CFunction dummy, void *ud)
     lj_err_throw(L, LUA_ERRSYNTAX);
   }
   pt = bc ? lj_bcread(ls) : lj_parse(ls);
-  fn = lj_func_newL_empty(L, pt, tabref(L->env));
+  fn = lj_func_newL_empty(L, pt, NULL);
   /* Don't combine above/below into one statement. */
   setfuncV(L, L->top++, fn);
   return NULL;

@@ -44,7 +44,7 @@ static TValue *index2adr(lua_State *L, int idx)
   if (idx > 0) {
     TValue *o = L->base + (idx - 1);
     return o < L->top ? o : niltv(L); 
-  } else if (idx > LUA_REGISTRYINDEX) {
+  } else if (idx > LUA51_REGISTRYINDEX) {
     lj_checkapi(idx != 0 && -idx <= L->top - L->base,
         "bad stack slot %d", idx);
     return L->top + idx;
@@ -162,7 +162,7 @@ LUA_API void lua_rotate (lua_State *L, int idx, int n) {
   TValue *p, *t, *m;
   t = L->top - 1;  /* end of stack segment being rotated */
   p = index2adr_stack(L, idx);  /* start of segment */
-  lj_checkapi(L, (n >= 0 ? n : -n) <= ((t - p) + 1), "invalid args lua_rotate(%d,%d)", idx, n);
+  lj_checkapi((n >= 0 ? n : -n) <= ((t - p) + 1), "invalid args lua_rotate(%d,%d)", idx, n);
   m = (n >= 0 ? t - n : p - n - 1);  /* end of prefix */
   reverse(L, p, m);  /* reverse the prefix with length 'n' */
   reverse(L, m + 1, t);  /* reverse the suffix */
@@ -409,7 +409,7 @@ LUA_API int lua_compare(lua_State *L, int index1, int index2, int op)
     case LUA_OPLT: return lua_lessthan(L, index1, index2);
     case LUA_OPLE: return lua_lessthan(L, index1, index2) || lua_equal(L, index1, index2);
   }
-  lj_checkapi(L, 0, "op = LUA_OP* expected");
+  lj_checkapi(0, "op = LUA_OP* expected");
   return 0; /* Should not be reached. */
 }
 

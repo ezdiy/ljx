@@ -36,6 +36,7 @@
 #include "lj_strfmt.h"
 #include "lj_lib.h"
 #include "lj_frame.h"
+#include "lj_func.h"
 
 /* -- Base library: checks ------------------------------------------------ */
 

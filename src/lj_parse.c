@@ -119,11 +119,14 @@ typedef struct FuncScope {
 /* Index into variable stack. */
 typedef uint16_t VarIndex;
 #define LJ_MAX_VSTACK		(PROTO_UV_MASK - LJ_MAX_UPVAL)
+#define VIDX_CLOSURE            (LJ_MAX_LOCVAR)
 
 /* Variable/goto/label info. */
 #define VSTACK_VAR_RW		0x01	/* R/W variable. */
 #define VSTACK_GOTO		0x02	/* Pending goto. */
 #define VSTACK_LABEL		0x04	/* Label. */
+#define VSTACK_VAR_UV		0x08	/* Needs upvalue. */
+#define VSTACK_LINKED_UV        0x10	/* UV used. */
 
 /* Per-function state. */
 typedef struct FuncState {
@@ -146,10 +149,14 @@ typedef struct FuncState {
   uint8_t numparams;		/* Number of parameters. */
   uint8_t framesize;		/* Fixed frame size. */
   uint8_t nuv;			/* Number of upvalues */
-  VarIndex varmap[LJ_MAX_LOCVAR];  /* Map from register to vstack idx. */
+  VarIndex varmap[LJ_MAX_LOCVAR];  /* Map from local index to vstack idx. */
   VarIndex uvmap[LJ_MAX_UPVAL];	/* Map from upvalue to vstack idx. */
-  VarIndex uvval[LJ_MAX_UPVAL]; /* Upvalue in proto (index and flags). */
-  uint8_t uvcount[LJ_MAX_UPVAL]; /* Usage count of each upvalue link. */
+  uint8_t uvstop[LJ_MAX_UPVAL];	/* Map from upvalue to vstack idx. */
+  //VarIndex uvval[LJ_MAX_UPVAL]; /* Upvalue in proto (index and flags). */
+  //struct FuncState *uvskip[LJ_MAX_UPVAL]; /* If we're referencing chained upvalue, how many frames to skip to land it. 0 = local, 1 = parent etc */
+  //uint8_t uvcount[LJ_MAX_UPVAL]; /* Usage count of each upvalue link. */
+  int minskip;
+  struct FuncState *minfs;
 } FuncState;
 
 /* Binary and unary operators. ORDER OPR */
@@ -978,7 +985,11 @@ static void bcemit_unop(FuncState *fs, BCOp op, ExpDesc *e)
       lj_assertFS(e->k == VNONRELOC, "bad expr type %d", e->k);
     }
   } else {
-    lj_assertFS(op == BC_UNM || op == BC_LEN || op == BC_BNOT, "bad unop %d", op);
+    lj_assertFS(op == BC_UNM || op == BC_LEN
+#if LJ_53
+ || op == BC_BNOT
+#endif
+    , "bad unop %d", op);
     if (op == BC_UNM && !expr_hasjump(e)) {  /* Constant-fold negations. */
 #if LJ_HASFFI
       if (e->k == VKCDATA) {  /* Fold in-place since cdata is not interned. */
@@ -1123,9 +1134,16 @@ static void fscope_uvmark(FuncState *fs, BCReg level)
 
 static void expr_index(FuncState *fs, ExpDesc *t, ExpDesc *e);
 
+static int adduv(FuncState *fs, VarIndex vidx, uint8_t stop)
+{
+  checklimit(fs, fs->nuv, LJ_MAX_UPVAL, "too many upvalues");
+  fs->uvmap[fs->nuv] = vidx;
+  fs->uvstop[fs->nuv] = stop;
+  return fs->nuv++;
+}
+
 /*
- * Look-up variable 'name' in all frames, with _ENV scoping,
- * create upvalue links if necessary.
+ * Look-up variable 'name' in all frames, with _ENV scoping.
  *
  * The code is a bit of spaghetti; but avoids recursion.
  * Variable lookups happen a lot.
@@ -1133,49 +1151,56 @@ static void expr_index(FuncState *fs, ExpDesc *t, ExpDesc *e);
 static void do_var_lookup(LexState LJ_RESTRICT *ls, ExpDesc LJ_RESTRICT *e, GCstr LJ_RESTRICT *name)
 {
   ExpDesc key;
-  int i, uvidx, uvres, vidx, hasenv = 0;
-  FuncState LJ_RESTRICT *frame, *uvfs, *fs = ls->fs;
+  int i, vidx;
+  FuncState LJ_RESTRICT *frame, *fs = ls->fs;
   VarInfo *vstack = ls->vstack;
   GCstr *nref;
+  int skip = 0;
 
-  /* Walk both upvalues and locals in single loop. */
-  for (frame = fs; frame; frame = frame->prev) {
+  /* Walk local vars of all function scopes to discover the name */
+  for (frame = fs; frame; frame = frame->prev, skip++) {
     int nvar = frame->nactvar-1;
-    int nuv = frame->nuv;
+    //int nuv = frame->nuv;
+
     /* First, search known locals. */
     for (i = nvar; i >= 0; i--) {
       vidx = frame->varmap[i];
-      nref = strref(vstack[vidx].name);
-      if (vidx && (nref == ls->env)) hasenv = 1;
+      VarInfo *var = vstack + vidx;
+      nref = strref(var->name);
       if (nref != name)
         continue;
+
       /* Found a local. */
-      uvidx = e->u.s.aux = vidx;
-      if (frame == fs) { /* In our scope. */
+      e->u.s.aux = vidx;
+      if (!skip) { /* In our scope. */
         expr_init(e, VLOCAL, i);
         return;
       }
-      /* An upvalue. */
-      fscope_uvmark(frame, i);
-      uvres = fs->nuv; /* If frame == fs->prev. */
-      goto link_uvs; /* Link upvalue chain. */
-    }
-
-    /* Now search upvalues we already know about. */
-    for (i = 0; i < nuv; i++) {
-      vidx = frame->uvmap[i]; /* vstack[] index. */
-      if (vidx == LJ_MAX_VSTACK) continue;
-      nref = strref(vstack[vidx].name);
-      if (nref != name) continue; /* Not found. */
-      uvidx = i | PROTO_UV_CHAINED; /* Used if frame != fs. */
-      uvres = i; /* Used if frame == fs. */
-      goto link_uvs; /* Extend upvalue chain if necessary. */
+      // not local, but not instantiated upvalue either
+      // first time ref, create uv
+      if (!(var->info & VSTACK_VAR_UV)) {
+        fscope_uvmark(frame, i);
+        var->info |= VSTACK_VAR_UV; // mark it that it's a local slot
+        adduv(frame, vidx, 1);
+      }
+      if (skip < fs->minskip) { // remember up to where we can lift this
+        fs->minskip = skip;
+        fs->minfs = frame; // frame we'll inject ourselves into
+      }
+      goto found;
     }
   }
-
-  /* Nothing found, it is global. */
-  do_var_lookup(ls, e, ls->env);
-  if (hasenv) { /* lexical _ENV.name */
+  // Search failed on all levels. Hallucinate _ENV even if it has no reg slot.
+  if (name == ls->env) {
+    if (!ls->hasenv) {
+      FuncState *t = ls->topfs;
+      adduv(t, 0, 1); // env is at slot 0
+      ls->hasenv = 1;
+    }
+    vidx = 0;
+  } else {
+    // global lookup
+    do_var_lookup(ls, e, ls->env);
     // TODO: note down name being pairs/next for predict_next()
     expr_init(&key, VKSTR, 0);
     key.u.sval = name;
@@ -1183,37 +1208,17 @@ static void do_var_lookup(LexState LJ_RESTRICT *ls, ExpDesc LJ_RESTRICT *e, GCst
     expr_index(ls->fs, e, &key);
     return;
   }
-
-  abort();
+  // vidx is valid
+found:;
+  for (i = 0; i < fs->nuv; i++) {
+    if (fs->uvmap[i] == vidx) {
+      expr_init(e, VUPVAL, i);
+      return;
+    }
+  }
+  // not installed in the uv list of our frame, so add it
+  expr_init(e, VUPVAL, adduv(fs, vidx, 0));
   return;
-
-link_uvs:;
-  uvfs = fs; /* For incrementing refcount. */
-  /* Create or extend UV chain to a local. */
-  if (frame != fs) { /* Not in origin scope */
-    uvres = uvfs->nuv;
-    for (; uvfs->prev != frame; uvfs = uvfs->prev) {
-      /* Link chain until uvfs->prev = frame. */
-      checklimit(fs, fs->nuv, LJ_MAX_UPVAL, "upvalues");
-      uvfs->uvval[uvfs->nuv] = uvfs->prev->nuv | PROTO_UV_CHAINED;
-      uvfs->uvcount[uvfs->nuv] = 1;
-      uvfs->uvmap[uvfs->nuv++] = vidx;
-    }
-    /* And put final pointer there. */
-    checklimit(fs, fs->nuv, LJ_MAX_UPVAL, "upvalues");
-    uvfs->uvval[uvfs->nuv] = uvidx;
-    uvfs->uvmap[uvfs->nuv] = vidx;
-    uvfs->uvcount[uvfs->nuv++] = 1;
-    /* If connected to previous UV chain, bump refcount of all links. */
-    while (uvidx & PROTO_UV_CHAINED) {
-      uvidx &= PROTO_UV_MASK;
-      uvfs = uvfs->prev;
-      uvfs->uvcount[uvidx]++;
-      uvidx = uvfs->uvval[uvidx];
-    }
-  } else uvfs->uvcount[uvres]++; /* Resident UV. */
-  expr_init(e, VUPVAL, uvres);
-  e->u.s.aux = vidx;
 }
 
 #define var_lookup(ls, e) do_var_lookup(ls, e, lex_str(ls))
@@ -1391,22 +1396,6 @@ static void fs_fixup_bc(FuncState *fs, GCproto *pt, BCIns *bc, MSize n)
     bc[i] = base[i].ins;
 }
 
-/* Fixup upvalues for child prototype, step #2. */
-static void fs_fixup_uv2(FuncState *fs, GCproto *pt)
-{
-  VarInfo *vstack = fs->ls->vstack;
-  uint16_t *uv = proto_uv(pt);
-  MSize i, n = pt->sizeuv;
-  for (i = 0; i < n; i++) {
-    VarIndex vidx = uv[i];
-    /* Child uv pointing to our local. Mark immutable if no writes were observed. */
-    if (vidx <= PROTO_UV_MASK) {
-      uint16_t immu = ((!(vstack[vidx].info & VSTACK_VAR_RW))*PROTO_UV_IMMUTABLE);
-      uv[i] = vstack[vidx].slot | immu;
-    }
-  }
-}
-
 /* Fixup constants for prototype. */
 static void fs_fixup_k(FuncState *fs, GCproto *pt, void *kptr)
 {
@@ -1415,7 +1404,8 @@ static void fs_fixup_k(FuncState *fs, GCproto *pt, void *kptr)
   Node *node;
   MSize i, hmask;
   checklimitgt(fs, fs->nkn, BCMAX_D+1, "constants");
-  checklimitgt(fs, fs->nkgc, BCMAX_D+1, "constants");
+  // TBD: only closures shouldn't be above this limit
+  checklimitgt(fs, fs->nkgc, BCMAX_D - VIDX_CLOSURE - 1, "constants");
   setmref(pt->k, kptr);
   pt->sizekn = fs->nkn;
   pt->sizekgc = fs->nkgc;
@@ -1453,90 +1443,55 @@ static void fs_fixup_k(FuncState *fs, GCproto *pt, void *kptr)
 	GCobj *o = gcV(&n->key);
 	setgcref(((GCRef *)kptr)[~kidx], o);
 	lj_gc_objbarrier(fs->L, pt, o);
-	if (tvisproto(&n->key))
-	  fs_fixup_uv2(fs, gco2pt(o));
+	//if (tvisproto(&n->key))
+	//  fs_fixup_uv2(fs, gco2pt(o));
       }
     }
   }
 }
 
-static void fs_fixup_uv1_revert(
-    FuncState *fs, uint16_t *uv, uint8_t **revert_buffer, size_t len)
+#define LIFTING_ENABLED (L2J(fs->ls->L)->flags & JIT_F_OPT_LLIFT)
+static void fs_link_uv(FuncState *fs, GCproto *pt, uint16_t *uv)
 {
-  size_t i;
-  for (i = 0; i < len; ++i)
-    revert_buffer[i]++;
-
-  memcpy(uv, fs->uvval, fs->nuv*sizeof(VarIndex));
-}
-
-/* Attempt to lift closures to upper scopes. */
-static void fs_fixup_uv1(FuncState *fs, GCproto *pt, uint16_t *uv)
-{
-  int i;
-  uint16_t puv[LJ_MAX_UPVAL];
-  FuncState *t,*p = fs;
-  int nuv = fs->nuv;
-#define LJ_REVERT_BUFFER_SIZE 128
-  uint8_t* revert_buffer[128];
-  size_t revert_buffer_i = 0;
-
   setmref(pt->uv, uv);
   pt->sizeuv = fs->nuv;
-  memcpy(uv, fs->uvval, fs->nuv*sizeof(VarIndex));
+  FuncState *parent = fs->prev;
 
-  if (!(L2J(fs->ls->L)->flags & JIT_F_OPT_LLIFT))
-    return;
-
-  while (p->prev) {
-    if (p->prev->nuv >= LJ_MAX_UPVAL)
-      return fs_fixup_uv1_revert(fs, uv, revert_buffer, revert_buffer_i);
-
-    /* check */
-    for (i = 0; i < nuv; i++) {
-      if ((uv[i] != PROTO_UV_HOLE) && ((!(uv[i] & PROTO_UV_CHAINED)) && (p->uvcount[i])))
-        goto stop;
-    }
-
-    /* remember status for current fun if next check above bails in next round */
-    memcpy(puv, uv, fs->nuv*sizeof(VarIndex));
-
-    /* and resolve one step up */
-    for (i = 0; i < nuv; i++) {
-      if (p->uvcount[i] == 0) /* this uv is dead */
-        uv[i] = PROTO_UV_HOLE;
-      if (uv[i] == PROTO_UV_HOLE)
-        continue;
-      if (uv[i] & PROTO_UV_CHAINED) { /* it is chained to prev, resolve */
-        if (revert_buffer_i == LJ_REVERT_BUFFER_SIZE)
-          return fs_fixup_uv1_revert(fs, uv, revert_buffer, revert_buffer_i);
-
-        revert_buffer[revert_buffer_i++] = &p->uvcount[i];
-        p->uvcount[i]--;
-        uv[i] = p->prev->uvval[uv[i] & PROTO_UV_MASK];
-      } else {
-        lj_assertFS(0, "expected uv chain during uv fixup");
-      }
-    }
-    p = p->prev;
-  }
-stop:;
-  /* Lifted? */
-  if (p != fs) {
-    /* Create uv chain. */
-    for (t = fs->prev; t != p; t = t->prev) {
-      lj_assertFS(t->nuv < LJ_MAX_UPVAL, "too many upvalues (chaining for lift)");
-      t->uvcount[t->nuv] = 1;
-      t->uvmap[t->nuv] = LJ_MAX_VSTACK;
-      t->uvval[t->nuv++] = t->prev->nuv | PROTO_UV_CHAINED;
-    }
-    /* And install the closure. */
-    lj_assertFS(t->nuv < LJ_MAX_UPVAL, "too many upvalues (lifted closure)");
-    t->uvval[t->nuv] = const_gc(t, obj2gco(pt), LJ_TPROTO) | PROTO_UV_CLOSURE;
-    t->uvmap[t->nuv] = LJ_MAX_VSTACK;
-    t->uvcount[t->nuv++] = 1;
+  // If lambda lifting is enabled, we'll reparent if possible
+  if (LIFTING_ENABLED && (fs->minskip > 1)) {
+    parent = fs->minfs;
+    VarIndex fn = VIDX_CLOSURE + const_gc(parent, obj2gco(pt), LJ_TPROTO);
+    adduv(parent, fn, 1);
+    adduv(fs, fn, 0);
     fs->flags = PROTO_LIFTED;
-    memcpy(uv, puv, fs->nuv*sizeof(VarIndex));
+  }
+
+  VarInfo *vstack = fs->ls->vstack;
+  for (int i = 0; i < fs->nuv; i++) {
+    VarIndex vidx = fs->uvmap[i];
+    if (fs->uvstop[i]) {
+      if (vidx >= VIDX_CLOSURE) {
+        vidx -= VIDX_CLOSURE;
+        uv[i] = PROTO_UV_CLOSURE | vidx;
+        continue;
+      }
+      VarInfo *var = vstack + vidx;
+      uv[i] = PROTO_UV_LOCAL | (uint16_t)var->slot;
+      if (vidx == 0)
+        uv[i] |= PROTO_UV_ENV;
+      else if (!(var->info & VSTACK_VAR_RW))
+        uv[i] |= PROTO_UV_IMMUTABLE;
+      continue;
+    }
+
+    // Otherwise a link. Scan parent scope to find existing copy.
+    int j;
+    for (j = 0; j < parent->nuv; j++)
+      if (parent->uvmap[j] == vidx)
+        goto found;
+    j = adduv(parent, vidx, 0);
+found:;
+    uv[i] = PROTO_UV_CHAINED | j;
   }
 }
 
@@ -1734,7 +1689,8 @@ static GCproto *fs_finish(LexState *ls, BCLine line)
   *(uint32_t *)((char *)pt + ofsk - sizeof(GCRef)*(fs->nkgc+1)) = 0;
   fs_fixup_bc(fs, pt, (BCIns *)((char *)pt + sizeof(GCproto)), fs->pc);
   fs_fixup_k(fs, pt, (void *)((char *)pt + ofsk));
-  fs_fixup_uv1(fs, pt, (uint16_t *)((char *)pt + ofsuv));
+  fs_link_uv(fs, pt, (uint16_t *)((char *)pt + ofsuv));
+//  fs_fixup_uv1(fs, pt, (uint16_t *)((char *)pt + ofsuv));
   fs_fixup_line(fs, pt, (void *)((char *)pt + ofsli), numline);
   fs_fixup_var(ls, pt, (uint8_t *)((char *)pt + ofsdbg), ofsvar);
 
@@ -1753,7 +1709,7 @@ static GCproto *fs_finish(LexState *ls, BCLine line)
 static void fs_init(LexState *ls, FuncState *fs)
 {
   lua_State *L = ls->L;
-  memset(fs->uvcount, 0, sizeof(fs->uvcount));
+  memset(fs, 0, sizeof(*fs));
   fs->prev = ls->fs; ls->fs = fs;  /* Append to list. */
   fs->ls = ls;
   fs->vbase = ls->vtop;
@@ -1771,6 +1727,8 @@ static void fs_init(LexState *ls, FuncState *fs)
   fs->flags = 0;
   fs->framesize = 1;  /* Minimum frame size. */
   fs->kt = lj_tab_new(L, 0, 0);
+  fs->minskip = INT_MAX;
+  fs->minfs = ls->topfs;
 
   /* Anchor table of constants in stack to avoid being collected. */
   settabV(L, L->top, fs->kt);
@@ -2018,7 +1976,8 @@ static void parse_body(LexState *ls, ExpDesc *e, int needself, BCLine line)
   if (!(fs.flags & PROTO_LIFTED)) {
     expr_init(e, VRELOCABLE,
 	    bcemit_AD(pfs, BC_FNEW, 0, const_gc(pfs, obj2gco(pt), LJ_TPROTO)));
-  } else { 
+  } else {
+    // lifted proto is always last upvalue
     expr_init(e, VRELOCABLE, bcemit_AD(pfs, BC_UGET, 0, pfs->nuv-1));
   }
 #if LJ_HASFFI
@@ -2886,6 +2845,7 @@ GCproto *lj_parse(LexState *ls)
   setstrV(L, L->top, ls->chunkname);  /* Anchor chunkname string. */
   incr_top(L);
   ls->level = 0;
+  ls->topfs = &fs;
   fs_init(ls, &fs);
   fs.linedefined = 0;
   fs.numparams = 0;
@@ -2893,18 +2853,17 @@ GCproto *lj_parse(LexState *ls)
   fs.bclim = 0;
   fs.flags |= PROTO_VARARG;  /* Main chunk is always a vararg func. */
 
-  /* Pretend _ENV is coming from a previous virtual scope. This UV is later patched in by chunk loader. */
   ls->env = lj_parse_keepstr(ls, "_ENV", 4);
+  ls->hasenv = 0;
+
   var_new(ls, 0, ls->env);
   ls->vstack[0].startpc = 0;
   ls->vstack[0].endpc = 0;
   ls->vstack[0].slot = 0;
-  ls->vstack[0].info = 0;
-  fs.uvmap[0] = 0;
-  fs.uvval[0] = PROTO_UV_ENV;
-  fs.nuv++;
+  ls->vstack[0].info = VSTACK_VAR_UV; // Already created.
+  ls->vtop = 1;
   fs.vbase = 1;
-  lj_assertFS(ls->vtop == 1);
+
   fscope_begin(&fs, &bl, 0);
   bcemit_AD(&fs, BC_FUNCV, 0, 0);  /* Placeholder. */
   lj_lex_next(ls);  /* Read-ahead first token. */

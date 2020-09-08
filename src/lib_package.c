@@ -229,26 +229,6 @@ static void *ll_checkclib (lua_State *L, const char *path) {
   return plib;
 }
 
-static void **ll_register(lua_State *L, const char *path)
-{
-  void **plib;
-  lua_pushfstring(L, "LOADLIB: %s", path);
-  lua_gettable(L, LUA_REGISTRYINDEX);  /* check library in registry? */
-  if (!lua_isnil(L, -1)) {  /* is there an entry? */
-    plib = (void **)lua_touserdata(L, -1);
-  } else {  /* no entry yet; create one */
-    lua_pop(L, 1);
-    plib = (void **)lua_newuserdata(L, sizeof(void *));
-    *plib = NULL;
-    luaL_setmetatable(L, "_LOADLIB");
-    lua_pushfstring(L, "LOADLIB: %s", path);
-    lua_pushvalue(L, -2);
-    lua_settable(L, LUA_REGISTRYINDEX);
-  }
-  return plib;
-}
-
-
 static void ll_addtoclib (lua_State *L, const char *path, void *plib) {
   lua_getfield(L, LUA_REGISTRYINDEX, CLIBS);
   lua_pushlightuserdata(L, plib);
@@ -458,37 +438,6 @@ static int lj_cf_package_loader_preload(lua_State *L)
   return 1;
 }
 
-/* ------------------------------------------------------------------------ */
-static void findloader (lua_State *L, const char *name) {
-  int i;
-  luaL_Buffer msg;  /* to build error message */
-  luaL_buffinit(L, &msg);
-  lua_getfield(L, lua_upvalueindex(1), "searchers");  /* will be at index 3 */
-  if (!lua_istable(L, 3))
-    luaL_error(L, LUA_QL("package.searchers") " must be a table");
-  /*  iterate over available searchers to find a loader */
-  for (i = 1; ; i++) {
-    lua_rawgeti(L, 3, i);  /* get a searcher */
-    if (lua_isnil(L, -1)) {  /* no more searchers? */
-      lua_pop(L, 1);  /* remove nil */
-      luaL_pushresult(&msg);  /* create error message */
-      luaL_error(L, "module " LUA_QS " not found:%s",
-                    name, lua_tostring(L, -1));
-    }
-    lua_pushstring(L, name);
-    lua_call(L, 1, 2);  /* call it */
-    if (lua_isfunction(L, -2))  /* did it find a loader? */
-      return;  /* module loader found */
-    else if (lua_isstring(L, -2)) {  /* searcher returned error message? */
-      lua_pop(L, 1);  /* remove extra return */
-      luaL_addvalue(&msg);  /* concatenate error message */
-    }
-    else
-      lua_pop(L, 2);  /* remove both returns */
-  }
-}
-
-
 #define sentinel	((void *)0x4004)
 
 static int lj_cf_package_require(lua_State *L)
@@ -609,21 +558,6 @@ static int lj_cf_package_seeall(lua_State *L)
   lua_setfield(L, -2, "__index");  /* mt.__index = _G */
   return 0;
 }
-
-/*
-** __gc tag method for CLIBS table: calls 'll_unloadlib' for all lib
-** handles in list CLIBS
-*/
-static int gctm (lua_State *L) {
-  int n = luaL_len(L, 1);
-  for (; n >= 1; n--) {  /* for each handle, in reverse order */
-    lua_rawgeti(L, 1, n);  /* get handle CLIBS[n] */
-    ll_unloadlib(lua_touserdata(L, -1));
-    lua_pop(L, 1);  /* pop handle */
-  }
-  return 0;
-}
-
 
 /* ------------------------------------------------------------------------ */
 
