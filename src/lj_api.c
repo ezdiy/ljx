@@ -13,6 +13,7 @@
 
 #define lj_api_c
 #define LUA_CORE
+#include <stdio.h>
 
 #include "lj_obj.h"
 #include "lj_gc.h"
@@ -32,7 +33,6 @@
 #include "lj_strfmt.h"
 #include "lj_char.h"
 
-
 /* -- Common helper functions --------------------------------------------- */
 
 #define lj_checkapi_slot(idx) \
@@ -45,6 +45,7 @@ static TValue *index2adr(lua_State *L, int idx)
     TValue *o = L->base + (idx - 1);
     return o < L->top ? o : niltv(L); 
   } else if (idx > LUA51_REGISTRYINDEX) {
+    //printf("negative stack %d\n", idx);
     lj_checkapi(idx != 0 && -idx <= L->top - L->base,
         "bad stack slot %d", idx);
     return L->top + idx;
@@ -57,7 +58,8 @@ static TValue *index2adr(lua_State *L, int idx)
     lj_checkapi(fn->c.gct == ~LJ_TFUNC && !isluafunc(fn),
         "calling frame is not a C function");
     if (idx == LUA_ENVIRONINDEX) {
-      if (gcrefu(fn->c.env))
+      printf("retrieving env\n");
+      if (!gcrefu(fn->c.env))
         return (TValue*)lj_tab_getint(tabV(registry(L)), LUA_RIDX_GLOBALS);
       settabref(L, o, fn->c.env);
       return o;
@@ -66,6 +68,7 @@ static TValue *index2adr(lua_State *L, int idx)
         idx = LUA_UVINDEX - idx; 
       else if (idx < LUA51_UVINDEX)
         idx = LUA51_UVINDEX - idx;
+      printf("resolving uv %d, %d\n", idx, fn->c.nupvalues);
       return (idx > 0 && idx <= fn->c.nupvalues) ? &fn->c.upvalue[idx-1] : niltv(L);
     }
   }
@@ -212,6 +215,7 @@ static void copy_slot(lua_State *L, TValue *f, int idx)
     /* NOBARRIER: A thread (i.e. L) is never black. */
     setgcref(L->env, obj2gco(tabV(f)));
   } else if (idx == LUA_ENVIRONINDEX) {
+    printf("setting env via copy\n");
     GCfunc *fn = curr_func(L);
     if (fn->c.gct != ~LJ_TFUNC)
       lj_err_msg(L, LJ_ERR_NOENV);
@@ -1271,6 +1275,7 @@ LUA_API int lua_setfenv(lua_State *L, int idx)
     lj_checkapi(tvistab(L->top-1), "top stack slot is not a table");
     t = tabV(L->top-1);
     if (tvisfunc(o)) {
+      printf("setting func env!\n");
       setgcref(funcV(o)->c.env, obj2gco(t));
     } else if (tvisthread(o)) {
       setgcref(threadV(o)->env, obj2gco(t));

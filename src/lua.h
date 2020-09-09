@@ -482,27 +482,19 @@ LUA_API int lua_gethookcount (lua_State *L);
 LUA_API void *lua_upvalueid (lua_State *L, int idx, int n);
 LUA_API void lua_upvaluejoin (lua_State *L, int idx1, int n1, int idx2, int n2);
 
-
 struct lua_Debug {
   int event;
   const char *name;	/* (n) */
   const char *namewhat;	/* (n) `global', `local', `field', `method' */
   const char *what;	/* (S) `Lua', `C', `main', `tail' */
   const char *source;	/* (S) */
-  /* Past this point, the struct is not ABI transferable to < Lua 5.4 */
-  size_t srclen;        /* (S) */
   int currentline;	/* (l) */
+  int nups;		/* (u) number of upvalues */
   int linedefined;	/* (S) */
   int lastlinedefined;	/* (S) */
-  unsigned char nups;	/* (u) number of upvalues */
-  unsigned char nparams;/* (u) number of parameters */
-  char isvararg;        /* (u) */
-  char istailcall;	/* (t) */
-  unsigned short ftransfer;   /* (r) index of first value transferred */
-  unsigned short ntransfer;   /* (r) number of transferred values */
   char short_src[LUA_IDSIZE]; /* (S) */
   /* private part */
-  ptrdiff_t i_ci;  /* active function */
+  int i_ci;  /* active function */
 };
 
 /* }====================================================================== */

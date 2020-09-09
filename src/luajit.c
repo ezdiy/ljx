@@ -520,7 +520,7 @@ static void dotty(lua_State *L)
   progname = NULL;
   lua_rl_init(L);
   while ((status = loadline(L)) != -1) {
-    if (status == LUA_OK) status = docall(L, 0, 0);
+    if (status == LUA_OK) status = docall(L, 0, LUA_MULTRET);
     report(L, status);
     if (status == LUA_OK && lua_gettop(L) > 0) {  /* any result to print? */
       lua_getglobal(L, "print");

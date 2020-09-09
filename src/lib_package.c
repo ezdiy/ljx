@@ -12,6 +12,8 @@
 #define lib_package_c
 #define LUA_LIB
 
+#include <stdio.h>
+
 #include "lua.h"
 #include "lauxlib.h"
 #include "lualib.h"
@@ -368,7 +370,7 @@ static const char *findfile(lua_State *L, const char *name,
 			    const char *pname, const char *dirsep)
 {
   const char *path;
-  lua_getfield(L, lua_upvalueindex(1), pname);  /* will be at index 3 */
+  lua_getfield(L, LUA_ENVIRONINDEX, pname);  /* will be at index 3 */
   path = lua_tostring(L, -1);
   if (path == NULL)
     luaL_error(L, LUA_QL("package.%s") " must be a string", pname);

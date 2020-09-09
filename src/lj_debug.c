@@ -5,6 +5,7 @@
 
 #define lj_debug_c
 #define LUA_CORE
+#include <stdio.h>
 
 #include "lj_obj.h"
 #include "lj_err.h"
@@ -436,11 +437,13 @@ int lj_debug_getinfo(lua_State *L, const char *what, lj_Debug *ar, int ext)
     L->top--;
     what++;
   } else {
+    printf("c=%08x\n", ar->i_ci);
     uint32_t offset = (uint32_t)ar->i_ci & 0xffff;
     uint32_t size = (uint32_t)ar->i_ci >> 16;
     lj_assertL(offset != 0, "bad frame offset");
     frame = tvref(L->stack) + offset;
     if (size) nextframe = frame + size;
+    printf("fr=%ld\n", tvref(L->maxstack) - frame);
     lj_assertL(frame <= tvref(L->maxstack) &&
 	       (!nextframe || nextframe <= tvref(L->maxstack)),
 	       "broken frame chain");
@@ -533,10 +536,12 @@ LUA_API int lua_getinfo(lua_State *L, const char *what, lua_Debug *ar)
 
 LUA_API int lua_getstack(lua_State *L, int level, lua_Debug *ar)
 {
+  printf("getting stack!\n");
   int size;
   cTValue *frame = lj_debug_frame(L, level, &size);
   if (frame) {
     ar->i_ci = (size << 16) + (int)(frame - tvref(L->stack));
+    printf("set ci to %08x\n", ar->i_ci);
     return 1;
   } else {
     ar->i_ci = level - size;
