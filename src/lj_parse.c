@@ -120,10 +120,9 @@ typedef struct FuncScope {
 typedef uint16_t VarIndex;
 #define LJ_MAX_VSTACK		(0xffff)
 
-#define UVFLAG_UV               1
-#define UVFLAG_CLOSURE          2
-#define UVFLAG_CLOSURE_UV       4
-#define UVFLAG_LOCAL            8
+#define UVFLAG_UV               0
+#define UVFLAG_CLOSURE          1
+#define UVFLAG_CLOSURE_UV       2
 
 /* Variable/goto/label info. */
 #define VSTACK_VAR_RW		0x01	/* R/W variable. */
@@ -1189,7 +1188,6 @@ static void do_var_lookup(LexState LJ_RESTRICT *ls, ExpDesc LJ_RESTRICT *e, GCst
         printf("not uv, promoting\n");
         fscope_uvmark(frame, i);
         var->info |= VSTACK_VAR_UV; // mark it that it's a local slot
-        adduv(frame, vidx, UVFLAG_LOCAL);
       }
       if (skip < fs->minskip) { // remember up to where we can lift this
         printf("minskip = %d\n", skip);
@@ -1223,7 +1221,7 @@ static void do_var_lookup(LexState LJ_RESTRICT *ls, ExpDesc LJ_RESTRICT *e, GCst
 found:;
   // check if it its added already
   for (i = 0; i < fs->nuv; i++) {
-    if (fs->uvmap[i] == vidx && (fs->uvflag[i] & (UVFLAG_LOCAL|UVFLAG_UV))) {
+    if (fs->uvmap[i] == vidx && (fs->uvflag[i] == UVFLAG_UV)) {
       printf("already uvmapped\n");
       expr_init(e, VUPVAL, i);
       return;
@@ -1487,25 +1485,21 @@ static void fs_link_uv(FuncState *fs, GCproto *pt, uint16_t *uv)
   uint16_t j;
   for (int i = 0; i < fs->nuv; i++) {
     VarIndex vidx = fs->uvmap[i];
-    VarInfo *var;
-    uint8_t mask = UVFLAG_LOCAL|UVFLAG_UV;
-    switch (fs->uvflag[i]) {
-      case UVFLAG_LOCAL:
-        var = vstack + vidx;
-        j = PROTO_UV_LOCAL | (uint16_t)var->slot;
-        if (vidx == 0)
-          j |= PROTO_UV_ENV;
-        else if (!(var->info & VSTACK_VAR_RW))
-          j |= PROTO_UV_IMMUTABLE;
-        break;
-      case UVFLAG_CLOSURE_UV:
-        mask = UVFLAG_CLOSURE;
+    uint8_t flag = fs->uvflag[i];
+    uint8_t mask = !!flag;
+    switch (flag) {
       case UVFLAG_UV:
+        if (vidx >= parent->base) {
+          VarInfo *var = vstack[vidx];
+          j = PROTO_UV_LOCAL | (uint16_t)var->slot;
+          break;
+        }
+      case UVFLAG_CLOSURE_UV:
         for (j = 0; j < parent->nuv; j++)
-          if (parent->uvmap[j] == vidx && (parent->uvflag[j] & mask))
+          if (parent->uvmap[j] == vidx && (parent->uvflag[j] == mask))
             break;
         if (j == parent->nuv)
-          j = adduv(parent, vidx, fs->uvflag[i]);
+          j = adduv(parent, vidx, flag);
         j |= PROTO_UV_CHAINED;
         break;
       case UVFLAG_CLOSURE:
