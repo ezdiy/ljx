@@ -412,10 +412,11 @@ typedef struct GCproto {
 #define PROTO_FFI		0x04	/* Uses BC_KCDATA for FFI datatypes. */
 #define PROTO_NOJIT		0x08	/* JIT disabled for this function. */
 #define PROTO_ILOOP		0x10	/* Patched bytecode with ILOOP etc. */
-/* Only used during parsing. */
-#define PROTO_HAS_RETURN	0x20	/* Already emitted a return. */
-#define PROTO_FIXUP_RETURN	0x40	/* Need to fixup emitted returns. */
-#define PROTO_LIFTED            0x80    /* This closure has been lifted. */
+/* Only used during parsing >= 0x100 */
+#define PROTO_HAS_RETURN	0x0100  /* Already emitted a return. */
+#define PROTO_FIXUP_RETURN	0x0200	/* Need to fixup emitted returns. */
+#define PROTO_LIFTED            0x0400  /* This closure has been lifted. */
+#define PROTO_DONTLIFT          0x0800  /* This closure has been lifted. */
 /* Top bits used for counting created closures. */
 #define PROTO_CLCOUNT		0x20	/* Base of saturating 3 bit counter. */
 #define PROTO_CLC_BITS		3

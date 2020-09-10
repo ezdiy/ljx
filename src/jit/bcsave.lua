@@ -132,11 +132,7 @@ end
 local function bcsave_c(ctx, output, s)
   local fp = savefile(output, "w")
   if ctx.type == "c" then
-<<<<<<< HEAD
-    fp:write(format([[
-=======
     fp:write(string.format([[
->>>>>>> d452fe2538301b26b53c24f68585f3d78b131d59
 #ifdef __cplusplus
 extern "C"
 #endif

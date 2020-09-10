@@ -463,7 +463,8 @@ static int jitopt_level(jit_State *J, const char *str)
     if (str[0] == '0') flags = JIT_F_OPT_0;
     else if (str[0] == '1') flags = JIT_F_OPT_1;
     else if (str[0] == '2') flags = JIT_F_OPT_2;
-    else flags = JIT_F_OPT_3;
+    else if (str[0] == '3') flags = JIT_F_OPT_3;
+    else flags = JIT_F_OPT_4;
     J->flags = (J->flags & ~JIT_F_OPT_MASK) | flags;
     return 1;  /* Ok. */
   }

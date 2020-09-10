@@ -86,8 +86,8 @@
 #define JIT_F_OPT_ABC		(JIT_F_OPT << 7)
 #define JIT_F_OPT_SINK		(JIT_F_OPT << 8)
 #define JIT_F_OPT_FUSE		(JIT_F_OPT << 9)
-#define JIT_F_OPT_LLIFT		(JIT_F_OPT << 9)
-#define JIT_F_OPT_STITCH    (JIT_F_OPT << 10)
+#define JIT_F_OPT_LLIFT		(JIT_F_OPT << 10)
+#define JIT_F_OPT_STITCH        (JIT_F_OPT << 11)
 
 /* Optimizations names for -O. Must match the order above. */
 #define JIT_F_OPTSTRING	\

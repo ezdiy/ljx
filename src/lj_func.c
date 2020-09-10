@@ -176,7 +176,8 @@ GCfunc *lj_func_newL_empty(lua_State *L, GCproto *pt, cTValue *env)
     uv->dhash = (uint32_t)(uintptr_t)pt ^ ((uint32_t)proto_uv(pt)[i] << 24);
     setgcref(fn->l.uvptr[i], obj2gco(uv));
     lj_gc_objbarrier(L, fn, uv);
-    if (flags == UV_ENV) {
+    // there's no chained or local
+    if (flags & UV_ENV) {
       copyTV(L, &uv->tv, env);
     } else if (flags == UV_CLOSURE)
       lj_func_init_closure(L, v & PROTO_UV_MASK, pt, fn, uv);
@@ -209,13 +210,12 @@ static GCfunc *lj_func_newL(lua_State *L, GCproto *pt, GCfunc *parent)
         lj_gc_objbarrier(L, fn, uv);
         lj_func_init_closure(L, v & PROTO_UV_MASK, pt, fn, uv);
         break;
-      case UV_ENV:
       case UV_CHAINED:
         uv = &gcref(puv[v & PROTO_UV_MASK])->uv;
         setgcref(fn->l.uvptr[i], obj2gco(uv));
         lj_gc_objbarrier(L, fn, uv);
         break;
-      case UV_IMMUTABLE:
+      case UV_LOCAL|UV_IMMUTABLE:
       case UV_LOCAL:
         uv = func_finduv(L, base + (v & 0xff));
         uv->flags = v >> PROTO_UV_SHIFT;
@@ -223,14 +223,11 @@ static GCfunc *lj_func_newL(lua_State *L, GCproto *pt, GCfunc *parent)
         setgcref(fn->l.uvptr[i], obj2gco(uv));
         lj_gc_objbarrier(L, fn, uv);
         break;
-/*      case UV_HOLE:
-        setgcrefnull(fn->l.uvptr[i]);
-        continue;*/
       default:
         lj_assertL(0, "invalid uvproto flags");
     }
+    fn->l.nupvalues = (uint8_t)nuv;
   }
-  fn->l.nupvalues = (uint8_t)nuv;
   return fn;
 }
 

@@ -39,6 +39,7 @@
 --
 ------------------------------------------------------------------------------
 
+print("bc")
 -- Cache some library functions and objects.
 local jit = require("jit")
 assert(jit.version_num == 20100, "LuaJIT core/library version mismatch")
@@ -137,12 +138,14 @@ local function bcdump(func, out, all, prefix)
   end
   out:write(format(prefix.."+- BYTECODE -- %s-%d\n", fi.loc, fi.lastlinedefined))
   for i=1,(#fi.uvinit) do
-    local uvv = band(fi.uvinit[i],0xfff) -- ORDER PROTO_UV_* in lj_obj.h
-    local loc = band(fi.uvinit[i],0x8000)~=0 and " PARENT" or ""
-    local imu = band(fi.uvinit[i],0x4000)~=0 and " IMMUTABLE" or ""
-    local env = band(fi.uvinit[i],0x2000)~=0 and " ENV" or ""
-    local clo = band(fi.uvinit[i],0x1000)~=0 and " CLOSURE" or ""
-    out:write((prefix.."| UV@%d = %d%s%s%s%s %04x\n"):format(i-1,uvv,loc,imu,env,clo,fi.uvinit[i]))
+    local uvv = band(fi.uvinit[i],0x1fff) -- ORDER PROTO_UV_* in lj_obj.h
+    local cha = band(fi.uvinit[i],0xc000)==0x8000 and " | PROTO_UV_CHAINED" or ""
+    local env = band(fi.uvinit[i],0x2000)==0x2000 and " | PROTO_UV_ENV" or ""
+    local clo = band(fi.uvinit[i],0xc000)==0xc000 and " | PROTO_UV_CLOSURE" or ""
+    local imu = band(fi.uvinit[i],0xc000)==0x4000 and " | PROTO_UV_IMMUTABLE" or ""
+    local loc = band(fi.uvinit[i],0xa000)==0 and " PROTO_UV_LOCAL" or ""
+    local uvf = loc .. cha .. env .. clo .. imu
+    out:write((prefix.."| UV[%d] = %d%s (0x%04x)\n"):format(i-1,uvv,uvf,fi.uvinit[i]))
     if clo ~= "" then
       local k = funck(func, -band(fi.uvinit[i],0xfff)-1)
       out:write(prefix .. "|   |\n")
