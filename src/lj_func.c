@@ -19,6 +19,7 @@
 #include "lj_vm.h"
 #include "lj_tab.h"
 
+#include <stdio.h>
 /* -- Prototypes ---------------------------------------------------------- */
 
 void LJ_FASTCALL lj_func_freeproto(global_State *g, GCproto *pt)
@@ -179,8 +180,9 @@ GCfunc *lj_func_newL_empty(lua_State *L, GCproto *pt, cTValue *env)
     // there's no chained or local
     if (flags & UV_ENV) {
       copyTV(L, &uv->tv, env);
-    } else if (flags == UV_CLOSURE)
+    } else if (flags == UV_CLOSURE) {
       lj_func_init_closure(L, v & PROTO_UV_MASK, pt, fn, uv);
+    } else lj_assertL(0, "unknown top chunk upvalues");
   }
   fn->l.nupvalues = (uint8_t)nuv;
   return fn;
@@ -202,21 +204,26 @@ static GCfunc *lj_func_newL(lua_State *L, GCproto *pt, GCfunc *parent)
   for (i = 0; i < nuv; i++) {
     uint32_t v = proto_uv(pt)[i];
     GCupval *uv;
+    printf("UV[%d/%d]\n", (int)i, (int)nuv);
     switch (v >> PROTO_UV_SHIFT) {
       case UV_CLOSURE:
+        printf("CLOSURE =>\n");
         uv = func_emptyuv(L);
         uv->flags = v >> PROTO_UV_SHIFT;
         setgcref(fn->l.uvptr[i], obj2gco(uv));
         lj_gc_objbarrier(L, fn, uv);
         lj_func_init_closure(L, v & PROTO_UV_MASK, pt, fn, uv);
+        printf("<= ENDCLOSURE\n");
         break;
       case UV_CHAINED:
+        printf("CHAINED\n");
         uv = &gcref(puv[v & PROTO_UV_MASK])->uv;
         setgcref(fn->l.uvptr[i], obj2gco(uv));
         lj_gc_objbarrier(L, fn, uv);
         break;
       case UV_LOCAL|UV_IMMUTABLE:
       case UV_LOCAL:
+        printf("LOCAL\n");
         uv = func_finduv(L, base + (v & 0xff));
         uv->flags = v >> PROTO_UV_SHIFT;
         uv->dhash = (uint32_t)(uintptr_t)mref(parent->l.pc, char) ^ (v << 24);

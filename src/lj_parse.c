@@ -1476,10 +1476,18 @@ static void fs_link_uv(FuncState *fs, GCproto *pt, uint16_t *uv)
   pt->sizeuv = fs->nuv;
   TRACE("$$$$ linking fs=%p\n",fs);
 
-  int minskip = fs->minskip - 1;
+  int minskip = fs->minskip;
   // If lambda lifting is enabled, we'll reparent if possible
-  if (LIFTING_ENABLED && (minskip > 0) && (parent) /*&& (fs->prev != fs->ls->topfs)*/ && ((fs->flags & PROTO_DONTLIFT) == 0)) {
-    TRACE("lifting due to minskip = %d\n", fs->minskip);
+  if (LIFTING_ENABLED && (minskip > 1) && (parent) /*&& (fs->prev != fs->ls->topfs)*/ && ((fs->flags & PROTO_DONTLIFT) == 0)) {
+    FuncState *p = fs;
+    TRACE("lifting due to minskip = %d\n", minskip);
+    if (minskip < INT_MAX) {
+      while (minskip > 0) {
+        minskip--;
+        p = p->prev;
+        if (p->minskip > minskip) p->minskip = minskip;
+      }
+    } else p = fs->ls->topfs;
   //  fs->minfs->minskip = 0;
     #if 0
     if (parent->minskip > minskip) {
@@ -1488,8 +1496,8 @@ static void fs_link_uv(FuncState *fs, GCproto *pt, uint16_t *uv)
       parent->minfs = fs->minfs;
     }
     #endif
-    parent = fs->minfs;
-    parent->flags |= PROTO_DONTLIFT;
+    parent = p;//fs->minfs;
+    //parent->flags |= PROTO_DONTLIFT;
     lj_assertFS(parent, "lifting to wrong parent");
     fs->flags |= PROTO_LIFTED;
   }
